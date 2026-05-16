@@ -93,7 +93,13 @@ def ensure_directories():
     # Create default config files if they don't exist
     config_file = ROOT_DIR / 'data' / 'config.json'
     if not config_file.exists():
-        config_file.write_text('{"upnp_enabled": false, "servers_path": "./servers", "mods_path": "./mods", "steamcmd_path": "./steamcmd"}')
+        import json as _json
+        config_file.write_text(_json.dumps({
+            "upnp_enabled": False,
+            "servers_path": str(ROOT_DIR / "servers"),
+            "mods_path": str(ROOT_DIR / "mods"),
+            "steamcmd_path": str(ROOT_DIR / "steamcmd"),
+        }))
     
     servers_file = ROOT_DIR / 'data' / 'servers.json'
     if not servers_file.exists():
@@ -818,6 +824,10 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # API Routes
+@api_router.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @api_router.get("/info")
 async def get_app_info():
     return {
@@ -2887,10 +2897,11 @@ async def websocket_servers(websocket: WebSocket):
 # Include router
 app.include_router(api_router)
 
-# CORS
+# CORS — allow_credentials=True is incompatible with allow_origins=["*"] in Starlette 0.28+
+# Auth uses bearer tokens in headers/query params (not cookies), so credentials not needed.
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2899,7 +2910,7 @@ app.add_middleware(
 # Serve static React frontend
 static_path = BASE_DIR / "static"
 if static_path.exists():
-    app.mount("/static", StaticFiles(directory=str(static_path / "static")), name="static")
+    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
     
     @app.get("/", response_class=HTMLResponse)
     async def serve_frontend():
@@ -2936,10 +2947,6 @@ async def startup_event():
     
     # Auto-start servers marked for auto-start
     await server_manager.auto_start_servers(GAME_DEFINITIONS)
-    
-    # Open browser automatically when running as exe
-    if getattr(sys, 'frozen', False):
-        webbrowser.open("http://localhost:8001")
     
     port = int(os.environ.get("SERVERCRAFT_PORT", 8080))
     local_ip = socket.gethostbyname(socket.gethostname())

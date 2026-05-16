@@ -77,7 +77,7 @@ backend/steamcmd/
 
 # ── Windows source / C++ build artifacts (not part of Linux edition) ───────────
 servercraft_source/
-src/
+/src/
 CMakeLists.txt
 
 # ── Development / planning files ───────────────────────────────────────────────
