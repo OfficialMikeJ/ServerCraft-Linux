@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/jsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
