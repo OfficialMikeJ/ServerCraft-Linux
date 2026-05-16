@@ -1,9 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/jsconfig.json",
   "compilerOptions": {
-    "baseUrl": "src",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*"]
