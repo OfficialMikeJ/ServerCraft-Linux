@@ -1,0 +1,61 @@
+{
+  "total_tests": 9,
+  "passed_tests": 8,
+  "success_rate": 88.88888888888889,
+  "results": [
+    {
+      "test": "Admin Login",
+      "success": true,
+      "details": "Token: Go_J-Rxsp82YsiNRokyk...",
+      "timestamp": "2026-04-15T18:36:21.866498"
+    },
+    {
+      "test": "Sub-User Login",
+      "success": true,
+      "details": "User: ModUser, Role: moderator",
+      "timestamp": "2026-04-15T18:36:22.001986"
+    },
+    {
+      "test": "Sub-User Session Validation",
+      "success": true,
+      "details": "Valid session for ModUser",
+      "timestamp": "2026-04-15T18:36:22.126283"
+    },
+    {
+      "test": "Sub-User Roles API",
+      "success": true,
+      "details": "Available roles: ['admin', 'moderator', 'viewer']",
+      "timestamp": "2026-04-15T18:36:22.235870"
+    },
+    {
+      "test": "Sub-Users List API",
+      "success": true,
+      "details": "Found 3 sub-users, enabled: True",
+      "timestamp": "2026-04-15T18:36:22.367371"
+    },
+    {
+      "test": "Marketplace Templates List",
+      "success": true,
+      "details": "Found 0 templates",
+      "timestamp": "2026-04-15T18:36:22.497607"
+    },
+    {
+      "test": "Template Rating API",
+      "success": true,
+      "details": "No templates available to rate (expected for fresh installation)",
+      "timestamp": "2026-04-15T18:36:22.615860"
+    },
+    {
+      "test": "Template Reviews API",
+      "success": true,
+      "details": "No templates available (expected for fresh installation)",
+      "timestamp": "2026-04-15T18:36:22.775697"
+    },
+    {
+      "test": "WebSocket Mod Download Endpoint",
+      "success": false,
+      "details": "Connection failed: ",
+      "timestamp": "2026-04-15T18:36:27.780566"
+    }
+  ]
+}
