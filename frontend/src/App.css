@@ -277,7 +277,8 @@ body {
 }
 
 .brand-icon {
-    font-size: 24px;
+    display: flex;
+    align-items: center;
 }
 
 .brand-text {
@@ -2182,8 +2183,8 @@ body {
 }
 
 .login-logo {
-    font-size: 56px;
-    color: var(--primary-color);
+    width: 52px;
+    height: 52px;
     margin-bottom: 16px;
     display: block;
     animation: pulse 2s ease-in-out infinite;

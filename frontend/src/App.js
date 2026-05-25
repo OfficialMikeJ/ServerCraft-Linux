@@ -1,8 +1,23 @@
 /**
- * ServerCraft Windows Edition - React Application
+ * ServerCraft Linux Edition - React Application
  * Version: 2026.1.6.44D
  * Copyright 2026 TierOne Development
  */
+
+const ServerCraftLogo = ({ size = 28, className = '' }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width={size} height={size} className={className} aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#12121a"/>
+        <rect x="4" y="5" width="24" height="7" rx="2" fill="#6366f1"/>
+        <circle cx="24" cy="8.5" r="1.5" fill="#10b981"/>
+        <rect x="7" y="7.5" width="10" height="2" rx="1" fill="rgba(255,255,255,0.25)"/>
+        <rect x="4" y="13.5" width="24" height="7" rx="2" fill="#4f46e5"/>
+        <circle cx="24" cy="17" r="1.5" fill="#10b981"/>
+        <rect x="7" y="16" width="10" height="2" rx="1" fill="rgba(255,255,255,0.25)"/>
+        <rect x="4" y="22" width="24" height="5" rx="2" fill="#3730a3"/>
+        <circle cx="24" cy="24.5" r="1.5" fill="#f59e0b"/>
+        <rect x="7" y="23.5" width="10" height="2" rx="1" fill="rgba(255,255,255,0.25)"/>
+    </svg>
+);
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
@@ -249,7 +264,7 @@ function LoginScreen({ onLogin, onSubUserLogin, showPasswordReset, setShowPasswo
             <div className="login-screen">
                 <div className="login-container">
                     <div className="login-header">
-                        <i className="fas fa-gamepad login-logo"></i>
+                        <ServerCraftLogo size={52} className="login-logo" />
                         <h1>ServerCraft</h1>
                         <p>Password Reset</p>
                     </div>
@@ -346,7 +361,7 @@ function LoginScreen({ onLogin, onSubUserLogin, showPasswordReset, setShowPasswo
                 <Snowflakes />
                 <div className="login-container">
                     <div className="login-header">
-                        <i className="fas fa-shield-alt login-logo"></i>
+                        <ServerCraftLogo size={52} className="login-logo" />
                         <h1>Two-Factor Authentication</h1>
                         <p>Enter your 6-digit code</p>
                     </div>
@@ -401,7 +416,7 @@ function LoginScreen({ onLogin, onSubUserLogin, showPasswordReset, setShowPasswo
             <Snowflakes />
             <div className="login-container">
                 <div className="login-header">
-                    <i className="fas fa-gamepad login-logo"></i>
+                    <ServerCraftLogo size={52} className="login-logo" />
                     <h1>ServerCraft</h1>
                     <p>Windows Edition</p>
                 </div>
@@ -541,7 +556,7 @@ function PasswordChangeScreen({ currentUsername, isFirstTime, onPasswordChange, 
             <Snowflakes />
             <div className="login-container password-change">
                 <div className="login-header">
-                    <i className="fas fa-shield-alt login-logo"></i>
+                    <ServerCraftLogo size={52} className="login-logo" />
                     <h1>Account Setup</h1>
                     <p>{isFirstTime ? 'Please change your default credentials' : 'Change your password'}</p>
                 </div>
@@ -712,7 +727,7 @@ function SecurityQuestionsSetup({ onSetup, onSkip }) {
             <Snowflakes />
             <div className="login-container security-setup">
                 <div className="login-header">
-                    <i className="fas fa-shield-alt login-logo"></i>
+                    <ServerCraftLogo size={52} className="login-logo" />
                     <h1>Security Setup</h1>
                     <p>Set up security questions for password recovery</p>
                 </div>
@@ -2389,9 +2404,9 @@ function App() {
             {/* Header */}
             <header className="app-header">
                 <div className="header-brand">
-                    <span className="brand-icon"><i className="fas fa-gamepad"></i></span>
+                    <span className="brand-icon"><ServerCraftLogo size={28} /></span>
                     <span className="brand-text">ServerCraft</span>
-                    <span className="brand-edition">Windows Edition</span>
+                    <span className="brand-edition">Linux</span>
                 </div>
                 <nav className="header-nav">
                     {getVisibleNavTabs().map(view => (
