@@ -355,13 +355,42 @@ class AuthManager:
         """Get current auth status (for initial load)"""
         auth_data = self._load_auth()
         user = auth_data.get("user", {})
-        
+
         return {
             "configured": bool(user),
             "must_change_password": user.get("must_change_password", True),
             "has_security_questions": len(user.get("security_questions", [])) >= 3,
             "username": user.get("username", "")
         }
+
+    def is_first_run(self) -> bool:
+        """Return True if the admin password has never been changed from the default"""
+        auth_data = self._load_auth()
+        user = auth_data.get("user", {})
+        if not user:
+            return True
+        default_hash = self._hash_password(self.DEFAULT_PASSWORD)
+        return user.get("password_hash") == default_hash
+
+    def complete_initial_setup(self, username: str, password: str) -> Dict[str, Any]:
+        """Set custom admin credentials during first-run setup"""
+        if not username or len(username.strip()) < 3:
+            return {"success": False, "error": "Username must be at least 3 characters"}
+        if not password or len(password) < 8:
+            return {"success": False, "error": "Password must be at least 8 characters"}
+
+        auth_data = self._load_auth()
+        user = auth_data.get("user", {})
+
+        user["username"] = username.strip()
+        user["password_hash"] = self._hash_password(password)
+        user["must_change_password"] = False
+        user["setup_completed_at"] = datetime.now(timezone.utc).isoformat()
+
+        auth_data["user"] = user
+        self._save_auth(auth_data)
+
+        return {"success": True}
     
     def cleanup_expired_sessions(self):
         """Remove expired sessions"""

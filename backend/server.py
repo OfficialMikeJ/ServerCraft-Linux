@@ -846,6 +846,23 @@ async def get_about_info():
         "version_history": VERSION_HISTORY
     }
 
+# ==================== SETUP ROUTES ====================
+@api_router.get("/setup/status")
+async def get_setup_status():
+    """Check whether first-run setup is still needed"""
+    return {"needs_setup": auth_manager.is_first_run()}
+
+class InitialSetupRequest(BaseModel):
+    username: str
+    password: str
+
+@api_router.post("/setup/complete")
+async def complete_setup(request: InitialSetupRequest):
+    """Complete first-run setup by setting admin credentials"""
+    if not auth_manager.is_first_run():
+        return {"success": False, "error": "Setup has already been completed"}
+    return auth_manager.complete_initial_setup(request.username, request.password)
+
 # ==================== AUTH ROUTES ====================
 @api_router.get("/auth/status")
 async def get_auth_status():

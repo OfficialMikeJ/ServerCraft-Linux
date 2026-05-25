@@ -1155,6 +1155,283 @@ function Snowflakes() {
 
 // ==================== END AUTH COMPONENTS ====================
 
+// ==================== FIRST-RUN SETUP SCREEN ====================
+function FirstRunSetupScreen({ apiBase, onComplete }) {
+    const [step, setStep] = useState(1);
+    const TOTAL_STEPS = 4;
+
+    // Step 2 fields
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [fieldError, setFieldError] = useState('');
+
+    // Step 3 fields
+    const GAMES = ['Minecraft', 'Valheim', 'Rust', 'ARK', 'CS2', 'Terraria', 'V Rising', 'Palworld', 'Project Zomboid', '7 Days to Die'];
+    const [selectedGames, setSelectedGames] = useState([]);
+
+    // Step 4 fields
+    const [upnpEnabled, setUpnpEnabled] = useState(false);
+
+    const [submitting, setSubmitting] = useState(false);
+
+    const toggleGame = (game) => {
+        setSelectedGames(prev =>
+            prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game]
+        );
+    };
+
+    const validateStep2 = () => {
+        if (!username.trim() || username.trim().length < 3) {
+            setFieldError('Username must be at least 3 characters'); return false;
+        }
+        if (password.length < 8) {
+            setFieldError('Password must be at least 8 characters'); return false;
+        }
+        if (password !== confirmPassword) {
+            setFieldError('Passwords do not match'); return false;
+        }
+        setFieldError(''); return true;
+    };
+
+    const handleNext = () => {
+        if (step === 2 && !validateStep2()) return;
+        setStep(s => s + 1);
+    };
+
+    const handleFinish = async () => {
+        setSubmitting(true);
+        try {
+            const res = await fetch(`${apiBase}/api/setup/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username.trim(), password }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                localStorage.setItem('servercraft_onboarding', JSON.stringify({
+                    completed: true,
+                    selectedGames,
+                    upnpEnabled,
+                    completedAt: new Date().toISOString(),
+                }));
+                onComplete();
+            } else {
+                setFieldError(data.error || 'Setup failed. Please try again.');
+                setStep(2);
+            }
+        } catch {
+            setFieldError('Could not reach the server. Please try again.');
+            setStep(2);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="onboarding-overlay">
+            <div className="onboarding-container" style={{ maxWidth: 520 }}>
+                {/* Header */}
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>⚙️</div>
+                    <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>ServerCraft Setup</h1>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: 6, fontSize: 14 }}>
+                        First-time configuration — this only runs once
+                    </p>
+                </div>
+
+                {/* Progress bar */}
+                <div className="onboarding-progress" style={{ marginBottom: 28 }}>
+                    {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+                        <div
+                            key={i}
+                            className={`onboarding-step ${i + 1 <= step ? 'active' : ''}`}
+                        />
+                    ))}
+                </div>
+
+                {/* Step 1 — Welcome */}
+                {step === 1 && (
+                    <div className="onboarding-content">
+                        <h2 style={{ marginBottom: 12 }}>Welcome to ServerCraft</h2>
+                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                            ServerCraft is your self-hosted game server management panel.
+                            This wizard will help you configure your installation in about a minute.
+                        </p>
+                        <ul style={{ color: 'var(--text-secondary)', lineHeight: 2, paddingLeft: 20, marginTop: 12 }}>
+                            <li>Create your admin account</li>
+                            <li>Choose which games you want to host</li>
+                            <li>Configure network settings</li>
+                        </ul>
+                        <button className="btn-primary" style={{ width: '100%', marginTop: 24 }} onClick={handleNext}>
+                            Get Started →
+                        </button>
+                    </div>
+                )}
+
+                {/* Step 2 — Create admin account */}
+                {step === 2 && (
+                    <div className="onboarding-content">
+                        <h2 style={{ marginBottom: 6 }}>Create Admin Account</h2>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
+                            This is the account you will use to log in to the panel.
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Username</label>
+                                <input
+                                    type="text"
+                                    className="auth-input"
+                                    placeholder="e.g. admin"
+                                    value={username}
+                                    onChange={e => { setUsername(e.target.value); setFieldError(''); }}
+                                    autoComplete="username"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Password</label>
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type={showPassword ? 'text' : 'password'}
+                                        className="auth-input"
+                                        placeholder="Min. 8 characters"
+                                        value={password}
+                                        onChange={e => { setPassword(e.target.value); setFieldError(''); }}
+                                        autoComplete="new-password"
+                                        style={{ paddingRight: 44 }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(s => !s)}
+                                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 16 }}
+                                    >
+                                        {showPassword ? '🙈' : '👁️'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Confirm Password</label>
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    className="auth-input"
+                                    placeholder="Repeat password"
+                                    value={confirmPassword}
+                                    onChange={e => { setConfirmPassword(e.target.value); setFieldError(''); }}
+                                    autoComplete="new-password"
+                                />
+                            </div>
+                        </div>
+
+                        {fieldError && (
+                            <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontSize: 13 }}>
+                                {fieldError}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                            <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setStep(1)}>← Back</button>
+                            <button className="btn-primary" style={{ flex: 2 }} onClick={handleNext}>Continue →</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 3 — Game selection */}
+                {step === 3 && (
+                    <div className="onboarding-content">
+                        <h2 style={{ marginBottom: 6 }}>Which games will you host?</h2>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                            Select all that apply — you can change this later.
+                        </p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                            {GAMES.map(game => (
+                                <button
+                                    key={game}
+                                    onClick={() => toggleGame(game)}
+                                    style={{
+                                        padding: '7px 14px',
+                                        borderRadius: 20,
+                                        border: `1px solid ${selectedGames.includes(game) ? 'var(--accent)' : 'var(--border)'}`,
+                                        background: selectedGames.includes(game) ? 'var(--accent)' : 'transparent',
+                                        color: selectedGames.includes(game) ? '#fff' : 'var(--text-secondary)',
+                                        cursor: 'pointer',
+                                        fontSize: 13,
+                                        fontWeight: 500,
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    {game}
+                                </button>
+                            ))}
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 20 }}>
+                            {selectedGames.length === 0 ? 'None selected — you can always add games later.' : `${selectedGames.length} selected`}
+                        </p>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                            <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setStep(2)}>← Back</button>
+                            <button className="btn-primary" style={{ flex: 2 }} onClick={handleNext}>Continue →</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 4 — Network */}
+                {step === 4 && (
+                    <div className="onboarding-content">
+                        <h2 style={{ marginBottom: 6 }}>Network Configuration</h2>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
+                            UPnP lets ServerCraft automatically open ports on your router so players can connect without manual port forwarding.
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {[
+                                { value: true, label: 'Enable UPnP', desc: 'Automatic port forwarding — recommended for home networks' },
+                                { value: false, label: 'Disable UPnP', desc: 'Manual port forwarding — recommended for VPS / cloud servers' },
+                            ].map(opt => (
+                                <button
+                                    key={String(opt.value)}
+                                    onClick={() => setUpnpEnabled(opt.value)}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '14px 16px',
+                                        borderRadius: 10,
+                                        border: `2px solid ${upnpEnabled === opt.value ? 'var(--accent)' : 'var(--border)'}`,
+                                        background: upnpEnabled === opt.value ? 'rgba(99,102,241,0.08)' : 'transparent',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>{opt.label}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>{opt.desc}</div>
+                                </button>
+                            ))}
+                        </div>
+
+                        {fieldError && (
+                            <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontSize: 13 }}>
+                                {fieldError}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                            <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setStep(3)}>← Back</button>
+                            <button
+                                className="btn-primary"
+                                style={{ flex: 2, opacity: submitting ? 0.7 : 1 }}
+                                onClick={handleFinish}
+                                disabled={submitting}
+                            >
+                                {submitting ? 'Setting up...' : '✓ Complete Setup'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+// ==================== END FIRST-RUN SETUP SCREEN ====================
+
 function App() {
     // Auth State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -1167,6 +1444,7 @@ function App() {
     const [showPasswordReset, setShowPasswordReset] = useState(false);
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+    const [needsFirstRunSetup, setNeedsFirstRunSetup] = useState(false);
     
     // AFK timeout state
     const lastActivityRef = useRef(null);
@@ -1308,9 +1586,22 @@ function App() {
     // Validate session on mount
     useEffect(() => {
         const validateStoredSession = async () => {
+            // Check first-run setup before anything else
+            try {
+                const setupRes = await fetch(`${API_BASE}/api/setup/status`);
+                const setupData = await setupRes.json();
+                if (setupData.needs_setup) {
+                    setNeedsFirstRunSetup(true);
+                    setAuthLoading(false);
+                    return;
+                }
+            } catch (e) {
+                // Backend unreachable — fall through to normal login
+            }
+
             const savedToken = localStorage.getItem('servercraft_auth_token');
             const savedSubUser = localStorage.getItem('servercraft_sub_user');
-            
+
             if (!savedToken) {
                 setAuthLoading(false);
                 setShowLoginScreen(true);
@@ -2011,6 +2302,22 @@ function App() {
         );
     }
     
+    // First-run setup — show before login on a fresh install
+    if (needsFirstRunSetup) {
+        return (
+            <>
+                <BackgroundSlideshow intervalSeconds={bgInterval} category={bgCategory} key="setup-bg" />
+                <FirstRunSetupScreen
+                    apiBase={API_BASE}
+                    onComplete={() => {
+                        setNeedsFirstRunSetup(false);
+                        setShowLoginScreen(true);
+                    }}
+                />
+            </>
+        );
+    }
+
     // Show login screen if not authenticated
     if (showLoginScreen || !isAuthenticated) {
         return (
