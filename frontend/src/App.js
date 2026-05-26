@@ -418,7 +418,7 @@ function LoginScreen({ onLogin, onSubUserLogin, showPasswordReset, setShowPasswo
                 <div className="login-header">
                     <ServerCraftLogo size={52} className="login-logo" />
                     <h1>ServerCraft</h1>
-                    <p>Windows Edition</p>
+                    <p>Linux</p>
                 </div>
                 
                 <form className="login-form" onSubmit={handleSubmit}>
@@ -2713,7 +2713,7 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
                             </div>
                             <div className="spec-item">
                                 <span className="spec-label">OS:</span>
-                                <span className="spec-value">Windows 10/11 or Server 2019+</span>
+                                <span className="spec-value">Ubuntu 22.04+ / Debian 12+</span>
                             </div>
                         </div>
                     </div>
@@ -2739,7 +2739,7 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
                             </div>
                             <div className="spec-item">
                                 <span className="spec-label">OS:</span>
-                                <span className="spec-value">Windows Server 2022/2025</span>
+                                <span className="spec-value">Ubuntu 24.04 LTS / Debian 12</span>
                             </div>
                         </div>
                     </div>
@@ -2763,7 +2763,7 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
                     </div>
 
                     <div className="specs-resource-warning">
-                        <p><i className="fas fa-exclamation-triangle" style={{color: '#eab308', marginRight: '8px'}}></i>Running game servers can use an undetermined amount of resources in heavier instances like large gunfights, large scale maps and more. Please ensure your Windows OS has enough resources to run itself before setting up ServerCraft.</p>
+                        <p><i className="fas fa-exclamation-triangle" style={{color: '#eab308', marginRight: '8px'}}></i>Running game servers can use an undetermined amount of resources in heavier instances like large gunfights, large scale maps and more. Please ensure your Linux host has enough resources available before setting up ServerCraft.</p>
                     </div>
 
                     <div className="specs-disclaimer">
@@ -4655,7 +4655,7 @@ function SettingsView({ settings, upnpStatus, showToast, bgInterval, setBgInterv
                             </div>
                             <div className="info-row">
                                 <span className="info-label">Build:</span>
-                                <span className="info-value">Windows Edition</span>
+                                <span className="info-value">Linux</span>
                             </div>
                         </div>
                     </div>
@@ -6049,8 +6049,8 @@ const FALLBACK_VERSION_HISTORY = [
         date: "2025-12-18",
         type: "major",
         changes: [
-            "Initial release of ServerCraft Windows Edition",
-            "Native Windows application without Docker dependency",
+            "Initial release of ServerCraft Linux",
+            "Docker-based Linux deployment for cross-distro compatibility",
             "SteamCMD integration for downloading and updating game servers",
             "Support for Steam Guard 2FA codes",
             "UPnP automatic port forwarding",
@@ -6064,7 +6064,7 @@ const FALLBACK_VERSION_HISTORY = [
 
 function AboutView() {
     const [aboutData, setAboutData] = useState({
-        name: 'ServerCraft - Windows Edition',
+        name: 'ServerCraft - Linux',
         version: '2026.1.6.44D',
         copyright: '© 2026 TierOne Development',
         version_history: FALLBACK_VERSION_HISTORY
@@ -6101,14 +6101,14 @@ function AboutView() {
                         <div className="app-branding">
                             <div className="app-logo"><i className="fas fa-gamepad"></i></div>
                             <div className="app-details">
-                                <h1 className="app-title">{aboutData?.name || 'ServerCraft - Windows Edition'}</h1>
+                                <h1 className="app-title">{aboutData?.name || 'ServerCraft - Linux'}</h1>
                                 <p className="app-version">Version {aboutData?.version || '2025.19.12.0B'}</p>
                                 <p className="app-copyright">{aboutData?.copyright || '© 2026 TierOne Development'}</p>
                             </div>
                         </div>
                         <div className="app-description">
                             <p>
-                                ServerCraft is a powerful, lightweight game server management panel designed for Windows. 
+                                ServerCraft is a powerful, lightweight game server management panel designed for Linux.
                                 Manage multiple game servers with ease using our intuitive interface.
                             </p>
                         </div>
@@ -6120,7 +6120,7 @@ function AboutView() {
                                 <li><i className="fab fa-steam"></i> SteamCMD integration</li>
                                 <li><i className="fas fa-network-wired"></i> UPnP automatic port forwarding</li>
                                 <li><i className="fas fa-puzzle-piece"></i> Steam Workshop mod support</li>
-                                <li><i className="fas fa-laptop"></i> Portable executable - no installation required</li>
+                                <li><i className="fas fa-server"></i> Docker-based — runs on any Linux distro</li>
                             </ul>
                         </div>
                     </div>
@@ -6166,7 +6166,7 @@ function AboutView() {
                                     <li><strong>CPU:</strong> 4 Cores</li>
                                     <li><strong>RAM:</strong> 8 GB</li>
                                     <li><strong>Storage:</strong> 50 GB SSD</li>
-                                    <li><strong>OS:</strong> Windows 10/11</li>
+                                    <li><strong>OS:</strong> Ubuntu 22.04+ / Debian 12+</li>
                                 </ul>
                             </div>
                             <div className="requirement-section">
@@ -6175,7 +6175,7 @@ function AboutView() {
                                     <li><strong>CPU:</strong> 8+ Cores</li>
                                     <li><strong>RAM:</strong> 32 GB+</li>
                                     <li><strong>Storage:</strong> 500 GB+ NVMe</li>
-                                    <li><strong>OS:</strong> Windows Server 2022</li>
+                                    <li><strong>OS:</strong> Ubuntu 24.04 LTS</li>
                                 </ul>
                             </div>
                         </div>
