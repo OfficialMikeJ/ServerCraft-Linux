@@ -1245,8 +1245,8 @@ function FirstRunSetupScreen({ apiBase, onComplete }) {
     };
 
     return (
-        <div className="onboarding-overlay">
-            <div className="onboarding-container" style={{ maxWidth: 520 }}>
+        <div className="onboarding-overlay" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: '#0a0a0a', zIndex: 10000, overflowY: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="onboarding-container" style={{ maxWidth: 520, width: '100%', padding: '40px 20px', color: '#f5f5f5' }}>
                 {/* Header */}
                 <div style={{ textAlign: 'center', marginBottom: 24 }}>
                     <div style={{ fontSize: 36, marginBottom: 8 }}>⚙️</div>
