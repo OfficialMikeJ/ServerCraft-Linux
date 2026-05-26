@@ -2015,15 +2015,19 @@ function App() {
 
     // Resource-conservative polling with adaptive intervals
     useEffect(() => {
+        if (!isAuthenticated) return;
+
         let wsConnected = false;
-        
+
         // Calculate poll interval based on server activity
         const getPollInterval = () => hasRunningServers ? POLL_INTERVALS.STATS_ACTIVE : POLL_INTERVALS.STATS_IDLE;
 
         const connectStatsWs = () => {
             try {
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsHost = API_BASE.replace(/^https?:\/\//, '');
+                const wsHost = API_BASE
+                    ? API_BASE.replace(/^https?:\/\//, '')
+                    : window.location.host;
                 statsWsRef.current = new WebSocket(`${wsProtocol}//${wsHost}/ws/stats`);
 
                 statsWsRef.current.onopen = () => {
@@ -2074,7 +2078,7 @@ function App() {
                 clearInterval(pollIntervalRef.current);
             }
         };
-    }, [pollSystemStats, hasRunningServers]);
+    }, [isAuthenticated, pollSystemStats, hasRunningServers]);
 
     // Initial load with resource-conservative polling
     useEffect(() => {
