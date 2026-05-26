@@ -72,6 +72,15 @@
     /* Transitions */
     --transition-fast: 150ms ease;
     --transition-normal: 250ms ease;
+
+    /* Aliases for missing variables referenced throughout the codebase */
+    --accent: #6366f1;
+    --border: #2a2a2a;
+    --border-color: #2a2a2a;
+    --primary-color: #6366f1;
+    --bg-dark: #050505;
+    --input-bg: #0d0d0d;
+    --text: #f5f5f5;
 }
 
 /* ===== Background Slideshow ===== */
@@ -4936,3 +4945,54 @@ body {
     margin-right: 6px;
 }
 
+
+/* ===== Missing utility classes ===== */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 150ms ease;
+}
+.btn-primary:hover { background: #4f46e5; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: transparent;
+    color: #a3a3a3;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 150ms ease, color 150ms ease;
+}
+.btn-secondary:hover { border-color: #444; color: #f5f5f5; }
+
+.auth-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0d0d0d;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    color: #f5f5f5;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 150ms ease;
+    box-sizing: border-box;
+}
+.auth-input:focus { border-color: #6366f1; }
+.auth-input::placeholder { color: #555; }

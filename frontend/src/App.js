@@ -1416,7 +1416,7 @@ function FirstRunSetupScreen({ apiBase, onComplete }) {
                                         transition: 'all 0.15s',
                                     }}
                                 >
-                                    <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>{opt.label}</div>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{opt.label}</div>
                                     <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>{opt.desc}</div>
                                 </button>
                             ))}
