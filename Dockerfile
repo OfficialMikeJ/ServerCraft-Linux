@@ -28,7 +28,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     SERVERCRAFT_PORT=8080
 
-# System dependencies + Python 3.11
+# System dependencies + Python 3.11 + Java 21 (for Minecraft and other JVM servers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-venv \
@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         curl \
         tar \
+        openjdk-21-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # Create dedicated user

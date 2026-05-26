@@ -2146,18 +2146,72 @@ async def install_game_server(server_id: str):
     server = server_manager.get_server(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    
+
     game = server.get("game")
     if game not in GAME_DEFINITIONS:
         raise HTTPException(status_code=400, detail="Unsupported game")
-    
+
     game_def = GAME_DEFINITIONS[game]
+
+    # Minecraft uses a custom install — download server JAR directly from Mojang
+    if game == "minecraft":
+        return await _install_minecraft(server_id)
+
     result = await steamcmd_manager.install_game(
         server_id,
         game_def["server_app_id"],
         game_def.get("requires_login", False)
     )
     return result
+
+
+async def _install_minecraft(server_id: str) -> dict:
+    """Download the latest Minecraft server JAR from Mojang."""
+    import aiohttp
+    server_path = server_manager.servers_path / server_id
+    server_path.mkdir(parents=True, exist_ok=True)
+    jar_path = server_path / "server.jar"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Step 1: get version manifest
+            async with session.get("https://launchermeta.mojang.com/mc/game/version_manifest.json") as r:
+                if r.status != 200:
+                    return {"success": False, "error": "Could not reach Mojang servers"}
+                manifest = await r.json(content_type=None)
+
+            latest = manifest["latest"]["release"]
+            version_url = next(v["url"] for v in manifest["versions"] if v["id"] == latest)
+
+            # Step 2: get server jar URL for that version
+            async with session.get(version_url) as r:
+                version_data = await r.json(content_type=None)
+
+            jar_url = version_data["downloads"]["server"]["url"]
+
+            # Step 3: download server jar
+            async with session.get(jar_url) as r:
+                with open(jar_path, "wb") as f:
+                    f.write(await r.read())
+
+        # Write eula.txt so server starts without manual acceptance
+        (server_path / "eula.txt").write_text("eula=true\n")
+
+        # Write a minimal server.properties
+        props = server_path / "server.properties"
+        if not props.exists():
+            props.write_text(
+                "online-mode=false\n"
+                "server-port=25565\n"
+                "max-players=20\n"
+                "motd=ServerCraft Minecraft Server\n"
+            )
+
+        return {"success": True, "message": f"Minecraft {latest} server installed successfully"}
+
+    except Exception as e:
+        logger.error(f"Minecraft install failed: {e}")
+        return {"success": False, "error": str(e)}
 
 @api_router.get("/servers/{server_id}/install/status")
 async def get_install_status(server_id: str):
