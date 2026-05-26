@@ -2927,7 +2927,10 @@ app.add_middleware(
 # Serve static React frontend
 static_path = BASE_DIR / "static"
 if static_path.exists():
-    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+    # React build outputs assets into build/static/ — mount that subfolder at /static
+    assets_path = static_path / "static"
+    if assets_path.exists():
+        app.mount("/static", StaticFiles(directory=str(assets_path)), name="static")
     
     @app.get("/", response_class=HTMLResponse)
     async def serve_frontend():
