@@ -3065,7 +3065,7 @@ function ServersView({ servers, games, openTabs, activeTab, consoleOutputs, onOp
     const deleteFile = async (name, isDir) => {
         if (!window.confirm(`Delete ${isDir ? 'folder' : 'file'} "${name}"? This cannot be undone.`)) return;
         const fp = filesPath ? `${filesPath}/${name}` : name;
-        await fetch(`${API_BASE}/api/servers/${activeTab}/files/${encodeURIComponent(fp)}`, { method: 'DELETE' });
+        await fetch(`${API_BASE}/api/servers/${activeTab}/files/${fp}`, { method: 'DELETE' });
         loadFiles(filesPath);
     };
 

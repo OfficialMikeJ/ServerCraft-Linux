@@ -326,10 +326,10 @@ class SteamCMDManager:
                     if target_path.exists():
                         shutil.rmtree(target_path)
                     shutil.copytree(workshop_path, target_path)
-                
+
                 return {"success": True, "mod_id": mod_id}
             else:
-                return {"success": False, "error": stderr}
+                return {"success": False, "error": f"SteamCMD exited with code {returncode}"}
             
         except Exception as e:
             return {"success": False, "error": str(e)}

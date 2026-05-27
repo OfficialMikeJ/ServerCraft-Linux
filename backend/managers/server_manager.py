@@ -123,33 +123,33 @@ class ServerManager:
         logger.info(f"Deleted server: {server_id}")
         return True
     
-    async def start_server(self, server_id: str, game_definitions: Dict) -> Dict:
+    async def start_server(self, server_id: str, game_definitions: Dict, output_callback=None) -> Dict:
         """Start a server"""
         server = self.config_manager.get_server(server_id)
         if not server:
             return {"success": False, "error": "Server not found"}
-        
+
         if server_id in self._processes:
             if self._processes[server_id].poll() is None:
                 return {"success": False, "error": "Server already running"}
-        
+
         game = server.get("game")
         if game not in game_definitions:
             return {"success": False, "error": "Unsupported game"}
-        
+
         game_def = game_definitions[game]
         server_path = self.servers_path / server_id
-        
+
         if not server_path.exists():
             return {"success": False, "error": "Server files not installed"}
-        
+
         try:
             # Build start command based on game
             cmd = self._build_start_command(server, game_def, server_path)
-            
+
             if not cmd:
                 return {"success": False, "error": "Could not build start command"}
-            
+
             # Start process
             process = subprocess.Popen(
                 cmd,
@@ -159,23 +159,23 @@ class ServerManager:
                 stdin=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0
             )
-            
+
             self._processes[server_id] = process
             self._console_buffers[server_id] = []
-            
-            # Start console reader
-            asyncio.create_task(self._read_console(server_id, process))
-            
+
+            # Start console reader — pass broadcast callback so output streams to WS
+            asyncio.create_task(self._read_console(server_id, process, output_callback))
+
             # Update state
             self.config_manager.save_server_state(server_id, {
                 "status": "running",
                 "pid": process.pid,
                 "started_at": datetime.now(timezone.utc).isoformat()
             })
-            
+
             logger.info(f"Started server: {server['name']} (PID: {process.pid})")
             return {"success": True, "pid": process.pid}
-            
+
         except Exception as e:
             logger.error(f"Failed to start server: {e}")
             return {"success": False, "error": str(e)}
@@ -363,34 +363,38 @@ class ServerManager:
             logger.error(f"Failed to stop server: {e}")
             return {"success": False, "error": str(e)}
     
-    async def restart_server(self, server_id: str, game_definitions: Dict) -> Dict:
+    async def restart_server(self, server_id: str, game_definitions: Dict, output_callback=None) -> Dict:
         """Restart a server"""
         await self.stop_server(server_id)
         await asyncio.sleep(2)
-        return await self.start_server(server_id, game_definitions)
+        return await self.start_server(server_id, game_definitions, output_callback)
     
-    async def _read_console(self, server_id: str, process: subprocess.Popen):
-        """Read console output from process"""
+    async def _read_console(self, server_id: str, process: subprocess.Popen, output_callback=None):
+        """Read console output from process, buffering it and optionally streaming via callback"""
         try:
+            loop = asyncio.get_running_loop()
             while process.poll() is None:
-                line = await asyncio.get_event_loop().run_in_executor(
-                    None, process.stdout.readline
-                )
-                
+                line = await loop.run_in_executor(None, process.stdout.readline)
+
                 if line:
                     line_str = line.decode('utf-8', errors='ignore').strip()
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     formatted_line = f"[{timestamp}] {line_str}"
-                    
+
                     if server_id not in self._console_buffers:
                         self._console_buffers[server_id] = []
-                    
+
                     self._console_buffers[server_id].append(formatted_line)
-                    
-                    # Trim buffer
+
                     if len(self._console_buffers[server_id]) > self._max_buffer_size:
                         self._console_buffers[server_id] = self._console_buffers[server_id][-self._max_buffer_size:]
-        
+
+                    if output_callback:
+                        try:
+                            await output_callback(formatted_line)
+                        except Exception:
+                            pass
+
         except Exception as e:
             logger.error(f"Console reader error: {e}")
     

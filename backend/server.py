@@ -2108,7 +2108,12 @@ async def delete_server(server_id: str):
 
 @api_router.post("/servers/{server_id}/start")
 async def start_server(server_id: str):
-    result = await server_manager.start_server(server_id, GAME_DEFINITIONS)
+    channel = f"console_{server_id}"
+
+    async def broadcast_line(line: str):
+        await manager.broadcast({"type": "output", "line": line}, channel)
+
+    result = await server_manager.start_server(server_id, GAME_DEFINITIONS, output_callback=broadcast_line)
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to start server"))
     await manager.broadcast({"type": "server_started", "server_id": server_id}, "servers")
@@ -2124,7 +2129,12 @@ async def stop_server(server_id: str):
 
 @api_router.post("/servers/{server_id}/restart")
 async def restart_server(server_id: str):
-    result = await server_manager.restart_server(server_id, GAME_DEFINITIONS)
+    channel = f"console_{server_id}"
+
+    async def broadcast_line(line: str):
+        await manager.broadcast({"type": "output", "line": line}, channel)
+
+    result = await server_manager.restart_server(server_id, GAME_DEFINITIONS, output_callback=broadcast_line)
     await manager.broadcast({"type": "server_restarted", "server_id": server_id}, "servers")
     return result
 
