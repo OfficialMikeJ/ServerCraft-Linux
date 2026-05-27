@@ -9,10 +9,15 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app
 
-COPY frontend/package.json ./
-RUN yarn install --silent
+# Copy lockfile alongside package.json so yarn uses the exact same versions
+COPY frontend/package.json frontend/yarn.lock* ./
+RUN yarn install --frozen-lockfile --silent
 
+# Copy source — .dockerignore excludes node_modules from the host.
+# chmod ensures .bin executables are runnable even if a Windows-built
+# node_modules was somehow present in the build context.
 COPY frontend/ ./
+RUN chmod +x node_modules/.bin/* 2>/dev/null || true
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN yarn build
 
