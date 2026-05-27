@@ -4996,3 +4996,142 @@ body {
 }
 .auth-input:focus { border-color: #6366f1; }
 .auth-input::placeholder { color: #555; }
+
+/* ===== Server Panel Sub-Tabs ===== */
+.server-subtabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-primary);
+    padding: 0 var(--spacing-md);
+    background: var(--bg-secondary);
+}
+
+.server-subtab {
+    padding: 9px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.15s, border-bottom-color 0.15s;
+    margin-bottom: -1px;
+}
+
+.server-subtab.active {
+    color: #6366f1;
+    border-bottom-color: #6366f1;
+}
+
+.server-subtab:hover { color: var(--text-primary); }
+
+/* ===== File Browser ===== */
+.file-browser {
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.file-browser-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.file-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    flex: 1;
+    min-width: 0;
+}
+
+.file-breadcrumb button {
+    background: none;
+    border: none;
+    color: #6366f1;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 13px;
+}
+
+.file-breadcrumb button:hover { text-decoration: underline; }
+
+.upload-zone {
+    border: 2px dashed var(--border-primary);
+    border-radius: 8px;
+    padding: 18px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    user-select: none;
+}
+
+.upload-zone:hover {
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+.file-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.file-table th {
+    text-align: left;
+    padding: 6px 10px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-primary);
+    font-weight: 500;
+}
+
+.file-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text-primary);
+}
+
+.file-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+.file-name-btn {
+    background: none;
+    border: none;
+    color: #6366f1;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+    text-align: left;
+}
+
+.file-name-btn:hover { text-decoration: underline; }
+
+.file-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.file-action-btn {
+    background: none;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.file-action-btn:hover { color: var(--text-primary); border-color: #555; }
+.file-action-btn.danger:hover { color: #ef4444; border-color: #ef4444; }

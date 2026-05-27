@@ -28,7 +28,7 @@ print("ServerCraft - Starting up...")
 print(f"Python version: {sys.version}")
 
 try:
-    from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Request
+    from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Request, UploadFile, File
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse, FileResponse
 except ImportError as e:
@@ -50,6 +50,7 @@ except ImportError as e:
 import json
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 try:
@@ -2152,54 +2153,67 @@ async def install_game_server(server_id: str):
         raise HTTPException(status_code=400, detail="Unsupported game")
 
     game_def = GAME_DEFINITIONS[game]
+    channel = f"console_{server_id}"
+
+    async def broadcast_line(line: str):
+        await manager.broadcast({"type": "output", "line": line}, channel)
+
+    await broadcast_line(f"=== Installing {game_def['name']} ===")
 
     # Minecraft uses a custom install — download server JAR directly from Mojang
     if game == "minecraft":
-        return await _install_minecraft(server_id)
+        return await _install_minecraft(server_id, on_output=broadcast_line)
 
     result = await steamcmd_manager.install_game(
         server_id,
         game_def["server_app_id"],
-        game_def.get("requires_login", False)
+        game_def.get("requires_login", False),
+        on_output=broadcast_line,
     )
     return result
 
 
-async def _install_minecraft(server_id: str) -> dict:
+async def _install_minecraft(server_id: str, on_output=None) -> dict:
     """Download the latest Minecraft server JAR from Mojang."""
     import aiohttp
     server_path = server_manager.servers_path / server_id
     server_path.mkdir(parents=True, exist_ok=True)
     jar_path = server_path / "server.jar"
 
+    async def _out(msg: str):
+        logger.info(msg)
+        if on_output:
+            await on_output(msg)
+
     try:
+        await _out("[Minecraft] Fetching version manifest from Mojang...")
         async with aiohttp.ClientSession() as session:
-            # Step 1: get version manifest
             async with session.get("https://launchermeta.mojang.com/mc/game/version_manifest.json") as r:
                 if r.status != 200:
+                    await _out("[Minecraft] ERROR: Could not reach Mojang servers")
                     return {"success": False, "error": "Could not reach Mojang servers"}
                 manifest = await r.json(content_type=None)
 
             latest = manifest["latest"]["release"]
+            await _out(f"[Minecraft] Latest release: {latest}")
             version_url = next(v["url"] for v in manifest["versions"] if v["id"] == latest)
 
-            # Step 2: get server jar URL for that version
             async with session.get(version_url) as r:
                 version_data = await r.json(content_type=None)
 
             jar_url = version_data["downloads"]["server"]["url"]
+            await _out(f"[Minecraft] Downloading server.jar from Mojang ...")
 
-            # Step 3: download server jar
             async with session.get(jar_url) as r:
                 with open(jar_path, "wb") as f:
                     f.write(await r.read())
 
-        # Write eula.txt so server starts without manual acceptance
+        await _out("[Minecraft] Writing eula.txt ...")
         (server_path / "eula.txt").write_text("eula=true\n")
 
-        # Write a minimal server.properties
         props = server_path / "server.properties"
         if not props.exists():
+            await _out("[Minecraft] Writing default server.properties ...")
             props.write_text(
                 "online-mode=false\n"
                 "server-port=25565\n"
@@ -2207,15 +2221,97 @@ async def _install_minecraft(server_id: str) -> dict:
                 "motd=ServerCraft Minecraft Server\n"
             )
 
+        await _out(f"[Minecraft] {latest} installed successfully!")
         return {"success": True, "message": f"Minecraft {latest} server installed successfully"}
 
     except Exception as e:
         logger.error(f"Minecraft install failed: {e}")
+        await _out(f"[Minecraft] ERROR: {e}")
         return {"success": False, "error": str(e)}
 
 @api_router.get("/servers/{server_id}/install/status")
 async def get_install_status(server_id: str):
     return steamcmd_manager.get_install_status(server_id)
+
+
+# ==================== FILE BROWSER ROUTES ====================
+
+def _resolve_server_path(server_id: str, relative: str = "") -> Path:
+    """Resolve a path inside the server directory with path-traversal protection."""
+    base = (server_manager.servers_path / server_id).resolve()
+    if relative:
+        target = (base / relative).resolve()
+        if not str(target).startswith(str(base) + "/") and str(target) != str(base):
+            raise HTTPException(status_code=400, detail="Invalid path")
+        return target
+    return base
+
+
+@api_router.get("/servers/{server_id}/files")
+async def list_server_files(server_id: str, path: str = ""):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    dir_path = _resolve_server_path(server_id, path)
+    if not dir_path.exists():
+        return {"files": [], "path": path}
+    if not dir_path.is_dir():
+        raise HTTPException(status_code=400, detail="Not a directory")
+    entries = []
+    for entry in sorted(dir_path.iterdir(), key=lambda e: (e.is_file(), e.name.lower())):
+        try:
+            stat = entry.stat()
+            entries.append({
+                "name": entry.name,
+                "is_dir": entry.is_dir(),
+                "size": stat.st_size if entry.is_file() else 0,
+                "modified": stat.st_mtime,
+            })
+        except OSError:
+            pass
+    return {"files": entries, "path": path}
+
+
+@api_router.post("/servers/{server_id}/files/upload")
+async def upload_server_file(server_id: str, path: str = "", file: UploadFile = File(...)):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    dir_path = _resolve_server_path(server_id, path)
+    dir_path.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename).name
+    if not safe_name or safe_name in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_path = (dir_path / safe_name).resolve()
+    base = (server_manager.servers_path / server_id).resolve()
+    if not str(file_path).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    content = await file.read()
+    file_path.write_bytes(content)
+    return {"success": True, "filename": safe_name, "size": len(content)}
+
+
+@api_router.get("/servers/{server_id}/files/download/{file_path:path}")
+async def download_server_file(server_id: str, file_path: str):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    target = _resolve_server_path(server_id, file_path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(target), filename=target.name)
+
+
+@api_router.delete("/servers/{server_id}/files/{file_path:path}")
+async def delete_server_file(server_id: str, file_path: str):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    target = _resolve_server_path(server_id, file_path)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if target.is_dir():
+        shutil.rmtree(target)
+    else:
+        target.unlink()
+    return {"success": True}
+
 
 # UPnP Routes
 @api_router.get("/upnp/status")

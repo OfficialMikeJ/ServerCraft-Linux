@@ -205,24 +205,35 @@ class SteamCMDManager:
         """Logout from Steam"""
         self.config_manager.clear_steam_login()
     
-    async def _run_steamcmd(self, args: list) -> tuple:
-        """Run SteamCMD with arguments"""
+    async def _run_steamcmd(self, args: list, on_output=None) -> tuple:
+        """Run SteamCMD with arguments, streaming output line by line via optional async callback"""
         if not self.is_installed():
             raise Exception("SteamCMD not installed")
-        
+
         cmd = [str(self.steamcmd_exe)] + args
-        
+
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
             cwd=str(self.steamcmd_path)
         )
-        
-        stdout, stderr = await process.communicate()
-        return stdout.decode(), stderr.decode(), process.returncode
+
+        all_lines = []
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            line_str = line.decode('utf-8', errors='ignore').rstrip()
+            if line_str:
+                all_lines.append(line_str)
+                if on_output:
+                    await on_output(line_str)
+
+        await process.wait()
+        return '\n'.join(all_lines), '', process.returncode
     
-    async def install_game(self, server_id: str, app_id: str, requires_login: bool = False) -> Dict:
+    async def install_game(self, server_id: str, app_id: str, requires_login: bool = False, on_output=None) -> Dict:
         """Install a game server"""
         try:
             servers_path = self.config_manager.get_servers_path()
@@ -235,7 +246,10 @@ class SteamCMDManager:
                 "message": "Starting installation...",
                 "started_at": datetime.now(timezone.utc).isoformat()
             }
-            
+
+            if on_output:
+                await on_output(f"[SteamCMD] Installing App ID {app_id} ...")
+
             # Build command
             if requires_login:
                 username = self.get_current_user()
@@ -255,8 +269,8 @@ class SteamCMDManager:
                     "+quit"
                 ]
             
-            stdout, stderr, returncode = await self._run_steamcmd(args)
-            
+            stdout, stderr, returncode = await self._run_steamcmd(args, on_output=on_output)
+
             if returncode == 0:
                 self._install_status[server_id] = {
                     "status": "complete",
@@ -264,14 +278,18 @@ class SteamCMDManager:
                     "message": "Installation complete",
                     "completed_at": datetime.now(timezone.utc).isoformat()
                 }
+                if on_output:
+                    await on_output("[SteamCMD] Installation complete!")
                 return {"success": True, "message": "Game installed successfully"}
             else:
                 self._install_status[server_id] = {
                     "status": "error",
                     "progress": 0,
-                    "message": f"Installation failed: {stderr}"
+                    "message": f"Installation failed"
                 }
-                return {"success": False, "error": stderr}
+                if on_output:
+                    await on_output(f"[SteamCMD] Installation failed (exit code {returncode})")
+                return {"success": False, "error": "Installation failed"}
             
         except Exception as e:
             logger.error(f"Failed to install game: {e}")

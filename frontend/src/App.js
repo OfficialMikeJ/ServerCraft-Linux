@@ -2152,6 +2152,7 @@ function App() {
     };
 
     const installServer = async (serverId) => {
+        setConsoleOutputs(prev => ({ ...prev, [serverId]: ['>>> Starting installation — output will appear below...'] }));
         showToast('Installing server files...', 'info');
         try {
             const response = await fetch(`${API_BASE}/api/servers/${serverId}/install`, {
@@ -2159,12 +2160,14 @@ function App() {
             });
             const data = await response.json();
             if (response.ok) {
-                showToast('Server installation started', 'success');
+                showToast(data.message || 'Server installed successfully', 'success');
             } else {
                 showToast(data.detail || 'Installation failed', 'error');
+                appendConsoleOutput(serverId, `>>> ERROR: ${data.detail || 'Installation failed'}`);
             }
         } catch (error) {
             showToast('Failed to install server', 'error');
+            appendConsoleOutput(serverId, '>>> ERROR: Connection to backend lost');
         }
     };
 
@@ -2234,6 +2237,13 @@ function App() {
         } catch (error) {
             console.error('Failed to load console:', error);
         }
+    };
+
+    const appendConsoleOutput = (serverId, line) => {
+        setConsoleOutputs(prev => ({
+            ...prev,
+            [serverId]: [...(prev[serverId] || []), line],
+        }));
     };
 
     const sendConsoleCommand = async (serverId, command) => {
@@ -2480,6 +2490,7 @@ function App() {
                         onDeleteServer={!isSubUser ? deleteServer : null}
                         onSendCommand={hasPermission('server.command') ? sendConsoleCommand : null}
                         onCreateServer={!isSubUser ? () => setShowCreateModal(true) : null}
+                        onAppendConsole={appendConsoleOutput}
                     />
                 )}
 
@@ -2952,15 +2963,128 @@ function DashboardView({ systemStats, servers, games, runningServers, stoppedSer
 }
 
 // Servers View Component
-function ServersView({ servers, games, openTabs, activeTab, consoleOutputs, onOpenTab, onCloseTab, onSetActiveTab, onStartServer, onStopServer, onRestartServer, onInstallServer, onDeleteServer, onSendCommand, onCreateServer }) {
+function ServersView({ servers, games, openTabs, activeTab, consoleOutputs, onOpenTab, onCloseTab, onSetActiveTab, onStartServer, onStopServer, onRestartServer, onInstallServer, onDeleteServer, onSendCommand, onCreateServer, onAppendConsole }) {
     const [commandInput, setCommandInput] = useState('');
+    const [serverSubTab, setServerSubTab] = useState('console');
+    const [serverFiles, setServerFiles] = useState([]);
+    const [filesPath, setFilesPath] = useState('');
+    const [filesLoading, setFilesLoading] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const consoleWsRef = useRef(null);
+    const consoleBottomRef = useRef(null);
+    const fileInputRef = useRef(null);
     const activeServer = servers.find(s => s.id === activeTab);
 
-    const handleSendCommand = () => {
-        if (commandInput.trim() && activeTab) {
-            onSendCommand(activeTab, commandInput.trim());
-            setCommandInput('');
+    // Console WebSocket — reconnect whenever active server tab changes
+    useEffect(() => {
+        if (consoleWsRef.current) {
+            consoleWsRef.current.close();
+            consoleWsRef.current = null;
         }
+        if (!activeTab) return;
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = API_BASE
+            ? API_BASE.replace(/^https?:\/\//, '')
+            : window.location.host;
+        const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/console/${activeTab}`);
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.line != null) {
+                    onAppendConsole(activeTab, msg.line);
+                }
+            } catch (e) {}
+        };
+        ws.onerror = () => {};
+        consoleWsRef.current = ws;
+
+        return () => { ws.close(); };
+    }, [activeTab]);
+
+    // Auto-scroll console to bottom when new lines arrive
+    useEffect(() => {
+        consoleBottomRef.current?.scrollIntoView({ behavior: 'auto' });
+    }, [consoleOutputs, activeTab]);
+
+    // Reset file browser when switching servers
+    useEffect(() => {
+        setFilesPath('');
+        setServerFiles([]);
+    }, [activeTab]);
+
+    const handleSendCommand = () => {
+        if (!commandInput.trim() || !activeTab) return;
+        const ws = consoleWsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(`CMD:${commandInput.trim()}`);
+        } else if (onSendCommand) {
+            onSendCommand(activeTab, commandInput.trim());
+        }
+        setCommandInput('');
+    };
+
+    const loadFiles = async (path = '') => {
+        if (!activeTab) return;
+        setFilesLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/servers/${activeTab}/files?path=${encodeURIComponent(path)}`);
+            const data = await res.json();
+            setServerFiles(data.files || []);
+            setFilesPath(path);
+        } catch (e) {}
+        setFilesLoading(false);
+    };
+
+    const handleSubTabChange = (tab) => {
+        setServerSubTab(tab);
+        if (tab === 'files') loadFiles('');
+    };
+
+    const handleFileDrop = async (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (file) await doUpload(file);
+    };
+
+    const doUpload = async (file) => {
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch(
+                `${API_BASE}/api/servers/${activeTab}/files/upload?path=${encodeURIComponent(filesPath)}`,
+                { method: 'POST', body: formData }
+            );
+            if (res.ok) loadFiles(filesPath);
+        } catch (e) {}
+        setUploading(false);
+    };
+
+    const deleteFile = async (name, isDir) => {
+        if (!window.confirm(`Delete ${isDir ? 'folder' : 'file'} "${name}"? This cannot be undone.`)) return;
+        const fp = filesPath ? `${filesPath}/${name}` : name;
+        await fetch(`${API_BASE}/api/servers/${activeTab}/files/${encodeURIComponent(fp)}`, { method: 'DELETE' });
+        loadFiles(filesPath);
+    };
+
+    const navigateTo = (folder) => {
+        const newPath = filesPath ? `${filesPath}/${folder}` : folder;
+        loadFiles(newPath);
+    };
+
+    const navigateUp = () => {
+        const parts = filesPath.split('/').filter(Boolean);
+        parts.pop();
+        loadFiles(parts.join('/'));
+    };
+
+    const formatSize = (bytes) => {
+        if (bytes === 0) return '—';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1048576).toFixed(1)} MB`;
     };
 
     return (
@@ -3042,26 +3166,151 @@ function ServersView({ servers, games, openTabs, activeTab, consoleOutputs, onOp
                             </div>
                         </div>
 
-                        <div className="console-container">
-                            <div className="console">
-                                <div className="console-output">
-                                    {(consoleOutputs[activeServer.id] || []).map((line, i) => (
-                                        <div key={i} className="console-line">{line}</div>
-                                    ))}
-                                </div>
-                                <div className="console-input-container">
-                                    <input
-                                        type="text"
-                                        className="console-input"
-                                        placeholder="Enter command..."
-                                        value={commandInput}
-                                        onChange={(e) => setCommandInput(e.target.value)}
-                                        onKeyPress={(e) => e.key === 'Enter' && handleSendCommand()}
-                                    />
-                                    <button className="console-send" onClick={handleSendCommand}>Send</button>
+                        {/* Sub-tab switcher: Console | Files */}
+                        <div className="server-subtabs">
+                            <button
+                                className={`server-subtab ${serverSubTab === 'console' ? 'active' : ''}`}
+                                onClick={() => handleSubTabChange('console')}
+                            >
+                                <i className="fas fa-terminal" style={{ marginRight: 6 }}></i>Console
+                            </button>
+                            <button
+                                className={`server-subtab ${serverSubTab === 'files' ? 'active' : ''}`}
+                                onClick={() => handleSubTabChange('files')}
+                            >
+                                <i className="fas fa-folder-open" style={{ marginRight: 6 }}></i>Files
+                            </button>
+                        </div>
+
+                        {/* Console tab */}
+                        {serverSubTab === 'console' && (
+                            <div className="console-container">
+                                <div className="console">
+                                    <div className="console-output">
+                                        {(consoleOutputs[activeServer.id] || []).map((line, i) => (
+                                            <div key={i} className="console-line">{line}</div>
+                                        ))}
+                                        <div ref={consoleBottomRef} />
+                                    </div>
+                                    <div className="console-input-container">
+                                        <input
+                                            type="text"
+                                            className="console-input"
+                                            placeholder="Enter command..."
+                                            value={commandInput}
+                                            onChange={(e) => setCommandInput(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && handleSendCommand()}
+                                        />
+                                        <button className="console-send" onClick={handleSendCommand}>Send</button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
+
+                        {/* Files tab */}
+                        {serverSubTab === 'files' && (
+                            <div className="file-browser">
+                                {/* Toolbar */}
+                                <div className="file-browser-toolbar">
+                                    <div className="file-breadcrumb">
+                                        <button onClick={() => loadFiles('')}>root</button>
+                                        {filesPath.split('/').filter(Boolean).map((seg, i, arr) => {
+                                            const path = arr.slice(0, i + 1).join('/');
+                                            return (
+                                                <span key={path}>
+                                                    <span style={{ color: 'var(--text-secondary)', margin: '0 3px' }}>/</span>
+                                                    <button onClick={() => loadFiles(path)}>{seg}</button>
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                    {filesPath && (
+                                        <button className="file-action-btn" onClick={navigateUp}>⬆ Up</button>
+                                    )}
+                                    <button className="file-action-btn" onClick={() => loadFiles(filesPath)}>↻ Refresh</button>
+                                    <button
+                                        className="file-action-btn"
+                                        style={{ borderColor: '#6366f1', color: '#6366f1' }}
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={uploading}
+                                    >
+                                        {uploading ? 'Uploading...' : '⬆ Upload File'}
+                                    </button>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => e.target.files[0] && doUpload(e.target.files[0])}
+                                    />
+                                </div>
+
+                                {/* Drag-and-drop upload zone */}
+                                <div
+                                    className="upload-zone"
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={handleFileDrop}
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    {uploading ? 'Uploading...' : 'Drop a file here or click to upload mods / configs'}
+                                </div>
+
+                                {/* File table */}
+                                {filesLoading ? (
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>Loading...</div>
+                                ) : serverFiles.length === 0 ? (
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
+                                        No files found. Install the server first or upload files above.
+                                    </div>
+                                ) : (
+                                    <table className="file-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Size</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {serverFiles.map(f => (
+                                                <tr key={f.name}>
+                                                    <td>
+                                                        {f.is_dir ? (
+                                                            <button className="file-name-btn" onClick={() => navigateTo(f.name)}>
+                                                                📁 {f.name}
+                                                            </button>
+                                                        ) : (
+                                                            <span>📄 {f.name}</span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ color: 'var(--text-secondary)' }}>
+                                                        {f.is_dir ? '—' : formatSize(f.size)}
+                                                    </td>
+                                                    <td>
+                                                        <div className="file-actions">
+                                                            {!f.is_dir && (
+                                                                <a
+                                                                    className="file-action-btn"
+                                                                    href={`${API_BASE}/api/servers/${activeServer.id}/files/download/${filesPath ? filesPath + '/' + f.name : f.name}`}
+                                                                    download={f.name}
+                                                                >
+                                                                    ⬇ Download
+                                                                </a>
+                                                            )}
+                                                            <button
+                                                                className="file-action-btn danger"
+                                                                onClick={() => deleteFile(f.name, f.is_dir)}
+                                                            >
+                                                                🗑 Delete
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        )}
 
                         <div className="card" style={{ margin: 'var(--spacing-md)' }}>
                             <div className="card-header">
