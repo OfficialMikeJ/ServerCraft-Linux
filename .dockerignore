@@ -1,0 +1,23 @@
+# Never copy local node_modules into the image — yarn install inside Docker
+# produces a Linux-compatible set with correct .bin symlink permissions.
+# Copying the Windows node_modules overwrites those and breaks executables.
+frontend/node_modules
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/build
+
+# Python caches and venvs
+backend/__pycache__
+backend/**/__pycache__
+**/*.pyc
+**/*.pyo
+backend/.venv
+backend/venv
+
+# Git and editor noise
+.git
+.gitignore
+*.md
+.DS_Store
