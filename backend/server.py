@@ -504,7 +504,8 @@ GAME_PORT_RANGES = {
     "fivem": {"start": 30120, "end": 30219, "query_offset": 0},
     "source_engine": {"start": 27015, "end": 27114, "query_offset": 0},
     "minecraft": {"start": 25565, "end": 25664, "query_offset": 0},
-    "teamspeak3": {"start": 9987, "end": 10086, "query_offset": 10024}
+    "teamspeak3": {"start": 9987, "end": 10086, "query_offset": 10024},
+    "assetto_corsa": {"start": 9600, "end": 9699, "query_offset": 0},
 }
 
 GAME_DEFINITIONS = {
@@ -767,6 +768,23 @@ GAME_DEFINITIONS = {
         "description": "TeamSpeak 3 voice communication server. Free up to 32 slots.",
         "license_notice": "TeamSpeak 3 servers are free with up to 32 slots available. Servers that require more than 32 slots will require a license from TeamSpeak.",
         "license_url": "https://www.teamspeak.com/en/features/licensing/"
+    },
+    "assetto_corsa": {
+        "name": "Assetto Corsa",
+        "app_id": "244210",
+        "server_app_id": "302550",
+        "requires_login": True,
+        "requires_ownership": True,
+        "default_port": 9600,
+        "port_range": GAME_PORT_RANGES["assetto_corsa"],
+        "executable": "acServer",
+        "workshop_id": None,
+        "tags": [
+            {"name": "racing", "color": "#ef4444"},
+            {"name": "simulation", "color": "#f59e0b"},
+            {"name": "modding", "color": "#8b5cf6"}
+        ],
+        "description": "Premier PC racing simulation with extensive modding support"
     }
 }
 
@@ -2180,6 +2198,28 @@ async def install_game_server(server_id: str):
         game_def.get("requires_login", False),
         on_output=broadcast_line,
     )
+
+    # Generate game-specific config files immediately after install so they're
+    # ready to edit before the server is ever started.
+    if result.get("success"):
+        server = server_manager.get_server(server_id)
+        if game == "arma_reforger" and server:
+            port = server.get("port", game_def.get("default_port", 2001))
+            query_port = server.get("query_port", port + 1)
+            try:
+                server_manager._generate_reforger_config(server, server_manager.servers_path / server_id, port, query_port)
+                await broadcast_line("[Arma Reforger] ServerConfig.json generated.")
+            except Exception as e:
+                await broadcast_line(f"[Arma Reforger] Warning: could not write ServerConfig.json — {e}")
+
+        elif game == "assetto_corsa" and server:
+            port = server.get("port", game_def.get("default_port", 9600))
+            try:
+                server_manager._generate_ac_config(server, server_manager.servers_path / server_id, port)
+                await broadcast_line("[Assetto Corsa] server_cfg.ini and entry_list.ini generated.")
+            except Exception as e:
+                await broadcast_line(f"[Assetto Corsa] Warning: could not write config files — {e}")
+
     return result
 
 
@@ -2363,6 +2403,120 @@ async def update_reforger_scenario(server_id: str, request: Request):
     server_manager.update_server(server_id, {"scenario_id": scenario_id})
 
     return {"success": True, "scenario_id": scenario_id}
+
+
+# Assetto Corsa-specific routes
+def _ac_cfg_path(server_id: str) -> Path:
+    return server_manager.servers_path / server_id / "cfg" / "server_cfg.ini"
+
+def _ac_entry_path(server_id: str) -> Path:
+    return server_manager.servers_path / server_id / "cfg" / "entry_list.ini"
+
+def _parse_ini(path: Path) -> dict:
+    """Read a .ini file into a nested dict {section: {key: value}}."""
+    import configparser
+    cp = configparser.RawConfigParser()
+    cp.read(path)
+    return {s: dict(cp[s]) for s in cp.sections()}
+
+def _write_ini(path: Path, data: dict) -> None:
+    """Write a nested dict back as a .ini file."""
+    import configparser
+    cp = configparser.RawConfigParser()
+    for section, values in data.items():
+        cp[section] = {k.upper(): str(v) for k, v in values.items()}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        cp.write(f)
+
+@api_router.get("/servers/{server_id}/assetto/config")
+async def get_ac_config(server_id: str):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    path = _ac_cfg_path(server_id)
+    if not path.exists():
+        return {"exists": False, "sections": {}}
+    return {"exists": True, "sections": _parse_ini(path)}
+
+@api_router.put("/servers/{server_id}/assetto/config")
+async def update_ac_config(server_id: str, request: Request):
+    server = server_manager.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if server.get("game") != "assetto_corsa":
+        raise HTTPException(status_code=400, detail="Not an Assetto Corsa server")
+    body = await request.json()
+    sections = body.get("sections")
+    if not sections:
+        raise HTTPException(status_code=400, detail="sections is required")
+    path = _ac_cfg_path(server_id)
+    _write_ini(path, sections)
+    return {"success": True}
+
+@api_router.get("/servers/{server_id}/assetto/entry-list")
+async def get_ac_entry_list(server_id: str):
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    path = _ac_entry_path(server_id)
+    if not path.exists():
+        return {"exists": False, "entries": []}
+    sections = _parse_ini(path)
+    entries = [{"slot": k, **v} for k, v in sections.items()]
+    return {"exists": True, "entries": entries}
+
+@api_router.put("/servers/{server_id}/assetto/entry-list")
+async def update_ac_entry_list(server_id: str, request: Request):
+    server = server_manager.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if server.get("game") != "assetto_corsa":
+        raise HTTPException(status_code=400, detail="Not an Assetto Corsa server")
+    body = await request.json()
+    entries = body.get("entries", [])
+    sections = {}
+    for i, entry in enumerate(entries):
+        slot = entry.get("slot", f"CAR_{i}")
+        sections[slot] = {k: v for k, v in entry.items() if k != "slot"}
+    path = _ac_entry_path(server_id)
+    _write_ini(path, sections)
+    return {"success": True}
+
+@api_router.get("/servers/{server_id}/assetto/mods")
+async def list_ac_mods(server_id: str):
+    """List installed cars and tracks from the content/ directory."""
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    server_path = server_manager.servers_path / server_id
+    cars_path = server_path / "content" / "cars"
+    tracks_path = server_path / "content" / "tracks"
+
+    def list_dir(p: Path):
+        if not p.exists():
+            return []
+        return sorted(e.name for e in p.iterdir() if e.is_dir())
+
+    return {"cars": list_dir(cars_path), "tracks": list_dir(tracks_path)}
+
+@api_router.post("/servers/{server_id}/assetto/mods/upload")
+async def upload_ac_mod(server_id: str, mod_type: str, file: UploadFile = File(...)):
+    """Upload a mod zip and extract it into content/cars or content/tracks."""
+    import zipfile, io
+    if not server_manager.get_server(server_id):
+        raise HTTPException(status_code=404, detail="Server not found")
+    if mod_type not in ("cars", "tracks"):
+        raise HTTPException(status_code=400, detail="mod_type must be 'cars' or 'tracks'")
+    server_path = server_manager.servers_path / server_id
+    content_dir = server_path / "content" / mod_type
+    content_dir.mkdir(parents=True, exist_ok=True)
+
+    data = await file.read()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            zf.extractall(content_dir)
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid zip archive")
+
+    return {"success": True, "extracted_to": str(content_dir)}
 
 
 # UPnP Routes

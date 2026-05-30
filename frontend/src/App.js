@@ -1525,12 +1525,14 @@ function App() {
     
     // Nav tabs filtered by role
     const hasReforgerServers = servers.some(s => s.game === 'arma_reforger');
+    const hasAssettoCorsaServers = servers.some(s => s.game === 'assetto_corsa');
 
     const getVisibleNavTabs = () => {
         const allTabs = [
             'dashboard',
             'servers',
             ...(hasReforgerServers ? ['reforger'] : []),
+            ...(hasAssettoCorsaServers ? ['assetto'] : []),
             ...(settings.clustering_enabled ? ['clusters'] : []),
             'steamcmd',
             'workshop',
@@ -1558,14 +1560,13 @@ function App() {
         return allTabs;
     };
 
-    const TAB_LABELS = { reforger: 'Arma Reforger' };
+    const TAB_LABELS = { reforger: 'Arma Reforger', assetto: 'Assetto Corsa' };
 
-    // Auto-redirect away from reforger tab when all Reforger servers are gone
+    // Auto-redirect away from game-specific tabs when all those servers are gone
     useEffect(() => {
-        if (currentView === 'reforger' && !hasReforgerServers) {
-            setCurrentView('dashboard');
-        }
-    }, [hasReforgerServers, currentView]);
+        if (currentView === 'reforger' && !hasReforgerServers) setCurrentView('dashboard');
+        if (currentView === 'assetto' && !hasAssettoCorsaServers) setCurrentView('dashboard');
+    }, [hasReforgerServers, hasAssettoCorsaServers, currentView]);
 
     // Refs for WebSocket and intervals
     const statsWsRef = useRef(null);
@@ -2585,6 +2586,18 @@ function App() {
                     )
                 )}
 
+                {/* Assetto Corsa Panel — only rendered when at least one AC server exists */}
+                {currentView === 'assetto' && hasAssettoCorsaServers && (
+                    <AssettoCorsaView
+                        servers={servers.filter(s => s.game === 'assetto_corsa')}
+                        onStartServer={hasPermission('server.start') ? startServer : null}
+                        onStopServer={hasPermission('server.stop') ? stopServer : null}
+                        onRestartServer={hasPermission('server.restart') ? restartServer : null}
+                        showToast={showToast}
+                        apiBase={API_BASE}
+                    />
+                )}
+
                 {/* Arma Reforger Panel — only rendered when at least one Reforger server exists */}
                 {currentView === 'reforger' && hasReforgerServers && (
                     <ReforgerView
@@ -2829,6 +2842,488 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
         </div>
     );
 }
+
+// ─── Assetto Corsa Panel ────────────────────────────────────────────────────
+
+const AC_TRACKS = [
+    { id: 'monza',                  label: 'Monza' },
+    { id: 'monza_junior',           label: 'Monza Junior' },
+    { id: 'imola',                  label: 'Imola' },
+    { id: 'spa',                    label: 'Spa-Francorchamps' },
+    { id: 'nurburgring',            label: 'Nürburgring GP' },
+    { id: 'nurburgring_sprint',     label: 'Nürburgring Sprint' },
+    { id: 'silverstone',            label: 'Silverstone GP' },
+    { id: 'silverstone_classic',    label: 'Silverstone Classic' },
+    { id: 'silverstone_international', label: 'Silverstone International' },
+    { id: 'brands_hatch',           label: 'Brands Hatch GP' },
+    { id: 'brands_hatch_indy',      label: 'Brands Hatch Indy' },
+    { id: 'mugello',                label: 'Mugello' },
+    { id: 'vallelunga',             label: 'Vallelunga' },
+    { id: 'magione',                label: 'Magione' },
+    { id: 'trento-bondone',         label: 'Trento–Bondone' },
+    { id: 'ks_laguna_seca',         label: 'Laguna Seca' },
+    { id: 'ks_red_bull_ring',       label: 'Red Bull Ring' },
+    { id: 'ks_barcelona',           label: 'Circuit de Barcelona-Catalunya' },
+    { id: 'ks_zandvoort',           label: 'Zandvoort' },
+    { id: 'ks_monza66',             label: 'Monza 1966' },
+    { id: 'drag',                   label: 'Drag Strip' },
+    { id: 'drift',                  label: 'Drift Track' },
+];
+
+const AC_CARS = [
+    { id: 'lotus_exige_s',          label: 'Lotus Exige S' },
+    { id: 'lotus_exige_scura',      label: 'Lotus Exige Scura' },
+    { id: 'lotus_exige_cup_260',    label: 'Lotus Exige Cup 260' },
+    { id: 'lotus_evora_gte',        label: 'Lotus Evora GTE' },
+    { id: 'lotus_2_eleven',         label: 'Lotus 2-Eleven' },
+    { id: 'bmw_m3_gt2',             label: 'BMW M3 GT2' },
+    { id: 'bmw_m3_e30',             label: 'BMW M3 E30' },
+    { id: 'bmw_m3_e30_drift',       label: 'BMW M3 E30 Drift' },
+    { id: 'bmw_m3_e92',             label: 'BMW M3 E92' },
+    { id: 'bmw_1m',                 label: 'BMW 1M' },
+    { id: 'ferrari_458',            label: 'Ferrari 458 Italia' },
+    { id: 'ferrari_458_gt2',        label: 'Ferrari 458 GT2' },
+    { id: 'ferrari_599xx',          label: 'Ferrari 599XX' },
+    { id: 'ferrari_f40',            label: 'Ferrari F40' },
+    { id: 'ferrari_f2004',          label: 'Ferrari F2004' },
+    { id: 'abarth500',              label: 'Abarth 500' },
+    { id: 'abarth500_assetto_corse',label: 'Abarth 500 Assetto Corse' },
+    { id: 'ks_porsche_911_carrera_rsr', label: 'Porsche 911 Carrera RSR' },
+    { id: 'ks_lamborghini_huracan_gt3', label: 'Lamborghini Huracán GT3' },
+    { id: 'ks_mclaren_650_gt3',     label: 'McLaren 650S GT3' },
+];
+
+const AC_WEATHER = [
+    { id: '1_heavy_fog',                      label: 'Heavy Fog' },
+    { id: '2_light_fog',                      label: 'Light Fog' },
+    { id: '3_clear',                          label: 'Clear' },
+    { id: '3_mid_rolling_start_wind_from_west', label: 'Mid Rolling (default)' },
+    { id: '4_mid_clear',                      label: 'Mid Clear' },
+    { id: '5_cloudy',                         label: 'Cloudy' },
+    { id: '6_light_clouds',                   label: 'Light Clouds' },
+    { id: '7_heavy_clouds',                   label: 'Heavy Clouds' },
+    { id: '8_drizzle',                        label: 'Drizzle' },
+    { id: '9_light_rain',                     label: 'Light Rain' },
+    { id: '10_heavy_rain',                    label: 'Heavy Rain' },
+    { id: '11_thunderstorm',                  label: 'Thunderstorm' },
+];
+
+function AssettoCorsaView({ servers, onStartServer, onStopServer, onRestartServer, showToast, apiBase }) {
+    const [subTab, setSubTab] = React.useState('servers');
+    const [selectedServerId, setSelectedServerId] = React.useState(servers[0]?.id || '');
+
+    // Config sub-tab state
+    const [cfgSections, setCfgSections] = React.useState(null);
+    const [cfgLoading, setCfgLoading] = React.useState(false);
+    const [cfgSaving, setCfgSaving] = React.useState(false);
+
+    // Entry list sub-tab state
+    const [entries, setEntries] = React.useState([]);
+    const [entryLoading, setEntryLoading] = React.useState(false);
+    const [entrySaving, setEntrySaving] = React.useState(false);
+
+    // Mods sub-tab state
+    const [modList, setModList] = React.useState({ cars: [], tracks: [] });
+    const [modLoading, setModLoading] = React.useState(false);
+    const [uploadType, setUploadType] = React.useState('cars');
+    const [uploadFile, setUploadFile] = React.useState(null);
+    const [uploading, setUploading] = React.useState(false);
+    const fileInputRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!servers.find(s => s.id === selectedServerId) && servers.length > 0) {
+            setSelectedServerId(servers[0].id);
+        }
+    }, [servers, selectedServerId]);
+
+    // Load config when server or tab changes
+    React.useEffect(() => {
+        if (!selectedServerId) return;
+        if (subTab === 'config') loadConfig();
+        if (subTab === 'entrylist') loadEntryList();
+        if (subTab === 'mods') loadMods();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedServerId, subTab]);
+
+    const loadConfig = async () => {
+        setCfgLoading(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/config`);
+            const d = await r.json();
+            setCfgSections(d.sections || {});
+        } catch { showToast('Failed to load server config', 'error'); }
+        finally { setCfgLoading(false); }
+    };
+
+    const saveConfig = async () => {
+        setCfgSaving(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/config`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sections: cfgSections }),
+            });
+            if (r.ok) showToast('server_cfg.ini saved', 'success');
+            else showToast('Failed to save config', 'error');
+        } catch { showToast('Network error', 'error'); }
+        finally { setCfgSaving(false); }
+    };
+
+    const loadEntryList = async () => {
+        setEntryLoading(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/entry-list`);
+            const d = await r.json();
+            setEntries(d.entries || []);
+        } catch { showToast('Failed to load entry list', 'error'); }
+        finally { setEntryLoading(false); }
+    };
+
+    const saveEntryList = async () => {
+        setEntrySaving(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/entry-list`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entries }),
+            });
+            if (r.ok) showToast('entry_list.ini saved', 'success');
+            else showToast('Failed to save entry list', 'error');
+        } catch { showToast('Network error', 'error'); }
+        finally { setEntrySaving(false); }
+    };
+
+    const addEntrySlot = () => {
+        const idx = entries.length;
+        setEntries([...entries, { slot: `CAR_${idx}`, model: '', skin: '', drivername: '', team: '', guid: '', ballast: '0', restrictor: '0', spectator_mode: '0' }]);
+    };
+
+    const removeEntrySlot = (i) => setEntries(entries.filter((_, idx) => idx !== i));
+
+    const updateEntry = (i, key, val) => {
+        const next = [...entries];
+        next[i] = { ...next[i], [key]: val };
+        setEntries(next);
+    };
+
+    const loadMods = async () => {
+        setModLoading(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/mods`);
+            const d = await r.json();
+            setModList(d);
+        } catch { showToast('Failed to load mods', 'error'); }
+        finally { setModLoading(false); }
+    };
+
+    const uploadMod = async () => {
+        if (!uploadFile) return;
+        setUploading(true);
+        const form = new FormData();
+        form.append('file', uploadFile);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/assetto/mods/upload?mod_type=${uploadType}`, {
+                method: 'POST', body: form,
+            });
+            if (r.ok) {
+                showToast(`Mod installed into content/${uploadType}/`, 'success');
+                setUploadFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                loadMods();
+            } else {
+                const d = await r.json().catch(() => ({}));
+                showToast(d.detail || 'Upload failed', 'error');
+            }
+        } catch { showToast('Network error during upload', 'error'); }
+        finally { setUploading(false); }
+    };
+
+    const serverSelected = servers.find(s => s.id === selectedServerId);
+
+    const inputStyle = { padding: '7px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, width: '100%' };
+    const labelStyle = { display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)' };
+    const fieldBox = { marginBottom: 14 };
+    const blueSave = (disabled) => ({
+        padding: '9px 24px', background: disabled ? 'rgba(59,130,246,0.3)' : '#3b82f6',
+        color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    });
+
+    const SUB_TABS = [
+        { id: 'servers',    icon: 'fa-server',        label: 'Servers' },
+        { id: 'config',     icon: 'fa-sliders-h',     label: 'Server Config' },
+        { id: 'entrylist',  icon: 'fa-list',          label: 'Entry List' },
+        { id: 'mods',       icon: 'fa-folder-open',   label: 'Mods' },
+    ];
+
+    return (
+        <section className="view active" data-testid="assetto-view">
+            <div className="view-header">
+                <h1><i className="fas fa-flag-checkered" style={{ marginRight: 10, color: '#ef4444' }}></i>Assetto Corsa</h1>
+                <p className="subtitle">Manage all Assetto Corsa servers from one place</p>
+            </div>
+
+            {/* Sub-tab bar */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+                {SUB_TABS.map(tab => (
+                    <button key={tab.id} onClick={() => setSubTab(tab.id)} style={{
+                        padding: '8px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                        fontWeight: subTab === tab.id ? 700 : 400,
+                        color: subTab === tab.id ? '#ef4444' : 'var(--text-secondary)',
+                        borderBottom: subTab === tab.id ? '2px solid #ef4444' : '2px solid transparent',
+                        marginBottom: -1, fontSize: 13, transition: 'color 0.15s',
+                    }}>
+                        <i className={`fas ${tab.icon}`} style={{ marginRight: 6 }}></i>{tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Server picker (shared across all sub-tabs when multiple servers exist) */}
+            {servers.length > 1 && subTab !== 'servers' && (
+                <div style={{ marginBottom: 20, maxWidth: 360 }}>
+                    <label style={labelStyle}>Active Server</label>
+                    <select value={selectedServerId} onChange={e => setSelectedServerId(e.target.value)} style={inputStyle}>
+                        {servers.map(s => <option key={s.id} value={s.id}>{s.name} (port {s.port})</option>)}
+                    </select>
+                </div>
+            )}
+
+            {/* ── Servers sub-tab ─────────────────────────────────────────── */}
+            {subTab === 'servers' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {servers.map(server => {
+                        const running = server.status === 'running';
+                        const installing = server.status === 'installing';
+                        return (
+                            <div key={server.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280', boxShadow: running ? '0 0 6px #22c55e' : 'none' }}></span>
+                                <div style={{ flex: 1, minWidth: 180 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 15 }}>{server.name}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                        Port {server.port} &nbsp;·&nbsp; {server.max_players || 16} clients max
+                                        {server.ac_track && <> &nbsp;·&nbsp; <span style={{ color: '#f97316' }}>{AC_TRACKS.find(t => t.id === server.ac_track)?.label || server.ac_track}</span></>}
+                                    </div>
+                                </div>
+                                <span style={{ padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: running ? 'rgba(34,197,94,0.12)' : installing ? 'rgba(245,158,11,0.12)' : 'rgba(107,114,128,0.12)', color: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280' }}>{server.status || 'stopped'}</span>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {!running && !installing && onStartServer && <button className="btn btn-green btn-sm" onClick={() => onStartServer(server.id)}><i className="fas fa-play"></i> Start</button>}
+                                    {running && onStopServer && <button className="btn btn-red btn-sm" onClick={() => onStopServer(server.id)}><i className="fas fa-stop"></i> Stop</button>}
+                                    {running && onRestartServer && <button className="btn btn-sm" onClick={() => onRestartServer(server.id)}><i className="fas fa-redo"></i> Restart</button>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ── Server Config sub-tab ──────────────────────────────────── */}
+            {subTab === 'config' && (
+                <div style={{ maxWidth: 680 }}>
+                    {cfgLoading ? (
+                        <p style={{ color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Loading server_cfg.ini…</p>
+                    ) : cfgSections === null ? (
+                        <p style={{ color: 'var(--text-secondary)' }}>Config not found — install the server first.</p>
+                    ) : (
+                        <>
+                            {/* Server section */}
+                            <div style={{ marginBottom: 28 }}>
+                                <h3 style={{ marginBottom: 14, fontSize: 14, fontWeight: 700, color: '#ef4444' }}><i className="fas fa-server" style={{ marginRight: 6 }}></i>Server</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    {[['NAME','Server Name'],['PASSWORD','Password'],['ADMIN_PASSWORD','Admin Password'],['MAX_CLIENTS','Max Clients'],['UDP_PORT','UDP Port'],['HTTP_PORT','HTTP Port']].map(([key, label]) => (
+                                        <div key={key} style={fieldBox}>
+                                            <label style={labelStyle}>{label}</label>
+                                            <input style={inputStyle} value={cfgSections.SERVER?.[key.toLowerCase()] || ''} onChange={e => setCfgSections({ ...cfgSections, SERVER: { ...cfgSections.SERVER, [key.toLowerCase()]: e.target.value } })} />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={fieldBox}>
+                                    <label style={labelStyle}>Track</label>
+                                    <select style={inputStyle} value={cfgSections.SERVER?.track || ''} onChange={e => setCfgSections({ ...cfgSections, SERVER: { ...cfgSections.SERVER, track: e.target.value } })}>
+                                        <option value="">— Select track —</option>
+                                        {AC_TRACKS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                        <option value="__custom">Custom (mod track)</option>
+                                    </select>
+                                    {cfgSections.SERVER?.track === '__custom' && (
+                                        <input style={{ ...inputStyle, marginTop: 6 }} placeholder="Enter track folder name" onChange={e => setCfgSections({ ...cfgSections, SERVER: { ...cfgSections.SERVER, track: e.target.value } })} />
+                                    )}
+                                </div>
+                                <div style={fieldBox}>
+                                    <label style={labelStyle}>Cars (semicolon-separated)</label>
+                                    <input style={inputStyle} value={cfgSections.SERVER?.cars || ''} onChange={e => setCfgSections({ ...cfgSections, SERVER: { ...cfgSections.SERVER, cars: e.target.value } })} placeholder="lotus_exige_s;bmw_m3_e30" />
+                                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {AC_CARS.map(c => (
+                                            <button key={c.id} onClick={() => {
+                                                const cur = cfgSections.SERVER?.cars || '';
+                                                const parts = cur.split(';').filter(Boolean);
+                                                if (!parts.includes(c.id)) setCfgSections({ ...cfgSections, SERVER: { ...cfgSections.SERVER, cars: [...parts, c.id].join(';') } });
+                                            }} style={{ padding: '2px 8px', fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, background: 'var(--bg-primary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{c.label}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Session section */}
+                            <div style={{ marginBottom: 28 }}>
+                                <h3 style={{ marginBottom: 14, fontSize: 14, fontWeight: 700, color: '#f59e0b' }}><i className="fas fa-clock" style={{ marginRight: 6 }}></i>Sessions</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                                    {[['PRACTICE','practice'],['QUALIFY','qualify'],['RACE','race']].map(([label, key]) => (
+                                        <div key={key} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+                                            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 8, color: '#f59e0b' }}>{label}</div>
+                                            <div style={fieldBox}>
+                                                <label style={labelStyle}>Time (min) / Laps</label>
+                                                <input style={inputStyle} value={cfgSections[label.toUpperCase()]?.time || cfgSections[label.toUpperCase()]?.laps || ''} onChange={e => setCfgSections({ ...cfgSections, [label.toUpperCase()]: { ...cfgSections[label.toUpperCase()], time: e.target.value } })} />
+                                            </div>
+                                            <div style={fieldBox}>
+                                                <label style={labelStyle}>Open (0/1)</label>
+                                                <input style={inputStyle} value={cfgSections[label.toUpperCase()]?.is_open || '1'} onChange={e => setCfgSections({ ...cfgSections, [label.toUpperCase()]: { ...cfgSections[label.toUpperCase()], is_open: e.target.value } })} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Weather section */}
+                            <div style={{ marginBottom: 28 }}>
+                                <h3 style={{ marginBottom: 14, fontSize: 14, fontWeight: 700, color: '#3b82f6' }}><i className="fas fa-cloud-sun" style={{ marginRight: 6 }}></i>Weather</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <div style={fieldBox}>
+                                        <label style={labelStyle}>Weather Preset</label>
+                                        <select style={inputStyle} value={cfgSections.WEATHER_0?.graphics || ''} onChange={e => setCfgSections({ ...cfgSections, WEATHER_0: { ...cfgSections.WEATHER_0, graphics: e.target.value } })}>
+                                            <option value="">— Select —</option>
+                                            {AC_WEATHER.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
+                                        </select>
+                                    </div>
+                                    {[['base_temperature_ambient','Ambient Temp (°C)'],['base_temperature_road','Road Temp (°C)'],['wind_base_speed_min','Wind Min (km/h)'],['wind_base_speed_max','Wind Max (km/h)']].map(([key, label]) => (
+                                        <div key={key} style={fieldBox}>
+                                            <label style={labelStyle}>{label}</label>
+                                            <input style={inputStyle} type="number" value={cfgSections.WEATHER_0?.[key] || ''} onChange={e => setCfgSections({ ...cfgSections, WEATHER_0: { ...cfgSections.WEATHER_0, [key]: e.target.value } })} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <button onClick={saveConfig} disabled={cfgSaving} style={blueSave(cfgSaving)}>
+                                {cfgSaving ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Saving…</> : <><i className="fas fa-save" style={{ marginRight: 6 }}></i>Save server_cfg.ini</>}
+                            </button>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* ── Entry List sub-tab ──────────────────────────────────────── */}
+            {subTab === 'entrylist' && (
+                <div style={{ maxWidth: 720 }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                        Each row is one car slot in <code>entry_list.ini</code>. Leave GUID blank for open slots (any driver can join).
+                    </p>
+                    {entryLoading ? (
+                        <p style={{ color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Loading entry list…</p>
+                    ) : (
+                        <>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 14 }}>
+                                <thead>
+                                    <tr style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                                        {['Slot','Car Model','Skin','Driver Name','Team','GUID','Ballast','Restr.',''].map(h => (
+                                            <th key={h} style={{ padding: '4px 6px 8px' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {entries.map((entry, i) => (
+                                        <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <td style={{ padding: '4px 6px', color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11 }}>{entry.slot}</td>
+                                            {['model','skin','drivername','team','guid','ballast','restrictor'].map(field => (
+                                                <td key={field} style={{ padding: '3px 4px' }}>
+                                                    {field === 'model' ? (
+                                                        <select style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} value={entry[field] || ''} onChange={e => updateEntry(i, field, e.target.value)}>
+                                                            <option value="">— car —</option>
+                                                            {AC_CARS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                                            <option value="__custom">Custom mod…</option>
+                                                        </select>
+                                                    ) : (
+                                                        <input style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} value={entry[field] || ''} onChange={e => updateEntry(i, field, e.target.value)} />
+                                                    )}
+                                                </td>
+                                            ))}
+                                            <td style={{ padding: '3px 4px' }}>
+                                                <button onClick={() => removeEntrySlot(i)} style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: 'none', borderRadius: 4, padding: '4px 8px', cursor: 'pointer', fontSize: 12 }}>
+                                                    <i className="fas fa-times"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                <button onClick={addEntrySlot} style={{ padding: '7px 16px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 13 }}>
+                                    <i className="fas fa-plus" style={{ marginRight: 6 }}></i>Add Slot
+                                </button>
+                                <button onClick={saveEntryList} disabled={entrySaving} style={blueSave(entrySaving)}>
+                                    {entrySaving ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Saving…</> : <><i className="fas fa-save" style={{ marginRight: 6 }}></i>Save entry_list.ini</>}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* ── Mods sub-tab ─────────────────────────────────────────────── */}
+            {subTab === 'mods' && (
+                <div style={{ maxWidth: 680 }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
+                        Upload mod <strong>.zip</strong> files directly — they are extracted into the server&apos;s <code>content/cars/</code> or <code>content/tracks/</code> directory.
+                        No Steam Workshop required.
+                    </p>
+
+                    {/* Upload area */}
+                    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px', marginBottom: 24 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}><i className="fas fa-upload" style={{ marginRight: 6, color: '#3b82f6' }}></i>Install Mod from Zip</h3>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                            <div style={{ ...fieldBox, marginBottom: 0 }}>
+                                <label style={labelStyle}>Mod Type</label>
+                                <select style={{ ...inputStyle, width: 130 }} value={uploadType} onChange={e => setUploadType(e.target.value)}>
+                                    <option value="cars">Car</option>
+                                    <option value="tracks">Track</option>
+                                </select>
+                            </div>
+                            <div style={{ ...fieldBox, marginBottom: 0, flex: 1 }}>
+                                <label style={labelStyle}>Zip File</label>
+                                <input ref={fileInputRef} type="file" accept=".zip" onChange={e => setUploadFile(e.target.files[0] || null)} style={{ ...inputStyle, padding: '5px 8px' }} />
+                            </div>
+                            <button onClick={uploadMod} disabled={!uploadFile || uploading} style={{ ...blueSave(!uploadFile || uploading), marginBottom: 0 }}>
+                                {uploading ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Installing…</> : <><i className="fas fa-folder-plus" style={{ marginRight: 6 }}></i>Install</>}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Installed mod lists */}
+                    {modLoading ? (
+                        <p style={{ color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Scanning content/…</p>
+                    ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                            {[['cars','fa-car','#f97316'],['tracks','fa-road','#22c55e']].map(([type, icon, color]) => (
+                                <div key={type}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color }}><i className={`fas ${icon}`} style={{ marginRight: 6 }}></i>{type === 'cars' ? 'Cars' : 'Tracks'} ({modList[type]?.length || 0})</div>
+                                    {modList[type]?.length > 0 ? (
+                                        <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                                            {modList[type].map(name => (
+                                                <li key={name} style={{ padding: '4px 0', fontSize: 12, borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{name}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>No {type} installed yet.</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </section>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 // ─── Arma Reforger Panel ────────────────────────────────────────────────────
 

@@ -150,6 +150,10 @@ class ServerManager:
                 query_port = server.get("query_port", port + 1)
                 self._generate_reforger_config(server, server_path, port, query_port)
 
+            elif game == "assetto_corsa":
+                port = server.get("port", game_def.get("default_port", 9600))
+                self._generate_ac_config(server, server_path, port)
+
             # Build start command based on game
             cmd = self._build_start_command(server, game_def, server_path)
 
@@ -263,6 +267,128 @@ class ServerManager:
             json.dump(config, f, indent=2)
 
         logger.info(f"Generated ServerConfig.json for Arma Reforger server '{server.get('name')}'")
+
+    def _generate_ac_config(self, server: Dict, server_path: Path, port: int) -> None:
+        """Write cfg/server_cfg.ini and cfg/entry_list.ini for Assetto Corsa."""
+        cfg_dir = server_path / "cfg"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+
+        name = server.get("name", "ServerCraft AC Server")
+        password = server.get("password", "")
+        admin_password = server.get("admin_password", "admin")
+        max_clients = server.get("max_players", 16)
+        track = server.get("ac_track", "monza")
+        track_config = server.get("ac_track_config", "")
+        cars = server.get("ac_cars", "lotus_exige_s")
+        http_port = port + 81  # e.g. 9681 for HTTP lobby
+
+        server_cfg = cfg_dir / "server_cfg.ini"
+        existing_cfg = {}
+        if server_cfg.exists():
+            import configparser
+            cp = configparser.RawConfigParser()
+            cp.read(server_cfg)
+            for section in cp.sections():
+                existing_cfg[section] = dict(cp[section])
+
+        weather = existing_cfg.get("WEATHER_0", {})
+
+        lines = [
+            "[SERVER]",
+            f"NAME={name}",
+            f"PASSWORD={password}",
+            f"ADMIN_PASSWORD={admin_password}",
+            f"UDP_PORT={port}",
+            f"TCP_PORT={port}",
+            f"HTTP_PORT={http_port}",
+            f"MAX_CLIENTS={max_clients}",
+            "SLEEP_TIME=1",
+            "CLIENT_SEND_INTERVAL_HZ=18",
+            "SEND_BUFFER_SIZE=0",
+            "RECV_BUFFER_SIZE=0",
+            "REGISTER_TO_LOBBY=1",
+            "NUM_THREADS=2",
+            f"TRACK={track}",
+            f"CARS={cars}",
+            f"CONFIG_TRACK={track_config}",
+            "TYRE_BLANKETS_ALLOWED=1",
+            "SUN_ANGLE=-8",
+            "ALLOWED_TYRES_OUT=2",
+            "ABS_ALLOWED=1",
+            "TC_ALLOWED=1",
+            "STABILITY_ALLOWED=0",
+            "AUTOCLUTCH_ALLOWED=1",
+            "TYRE_RATE=1",
+            "DAMAGE_MULTIPLIER=100",
+            "FUEL_RATE=100",
+            "QUALIFY_MAX_WAIT_PERC=120",
+            "TIME_OF_DAY_MULT=1",
+            "RACE_OVER_TIME=30",
+            "RACE_GAS_PENALTY_DISABLED=0",
+            "RESULT_SCREEN_TIME=60",
+            "MAX_CONTACTS_PER_KM=0",
+            "WELCOME_MESSAGE=",
+            "",
+            "[PRACTICE]",
+            "NAME=Practice",
+            "TIME=60",
+            "IS_OPEN=1",
+            "",
+            "[QUALIFY]",
+            "NAME=Qualify",
+            "TIME=15",
+            "IS_OPEN=1",
+            "MAX_PLAYERS_WAIT=20",
+            "",
+            "[RACE]",
+            "NAME=Race",
+            "LAPS=5",
+            "WAIT_TIME=30",
+            "IS_OPEN=1",
+            "",
+            "[DYNAMIC_TRACK]",
+            "SESSION_START=98",
+            "RANDOMNESS=2",
+            "SESSION_TRANSFER=50",
+            "LAP_GAIN=1",
+            "",
+            "[WEATHER_0]",
+            f"GRAPHICS={weather.get('graphics', '3_mid_rolling_start_wind_from_west')}",
+            f"BASE_TEMPERATURE_AMBIENT={weather.get('base_temperature_ambient', '20')}",
+            f"BASE_TEMPERATURE_ROAD={weather.get('base_temperature_road', '8')}",
+            f"VARIATION_AMBIENT={weather.get('variation_ambient', '2')}",
+            f"VARIATION_ROAD={weather.get('variation_road', '2')}",
+            f"WIND_BASE_SPEED_MIN={weather.get('wind_base_speed_min', '3')}",
+            f"WIND_BASE_SPEED_MAX={weather.get('wind_base_speed_max', '15')}",
+            f"WIND_BASE_DIRECTION={weather.get('wind_base_direction', '30')}",
+            f"WIND_VARIATION_DIRECTION={weather.get('wind_variation_direction', '15')}",
+        ]
+
+        with open(server_cfg, "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+        # Write entry_list.ini only if it doesn't already exist (preserve user edits)
+        entry_list = cfg_dir / "entry_list.ini"
+        if not entry_list.exists():
+            car_list = [c.strip() for c in cars.split(";") if c.strip()]
+            entry_lines = []
+            for i, car in enumerate(car_list):
+                entry_lines += [
+                    f"[CAR_{i}]",
+                    f"MODEL={car}",
+                    "SKIN=",
+                    "SPECTATOR_MODE=0",
+                    "DRIVERNAME=",
+                    "TEAM=",
+                    "GUID=",
+                    "BALLAST=0",
+                    "RESTRICTOR=0",
+                    "",
+                ]
+            with open(entry_list, "w") as f:
+                f.write("\n".join(entry_lines))
+
+        logger.info(f"Generated AC config files for server '{server.get('name')}'")
 
     def _build_start_command(self, server: Dict, game_def: Dict, server_path: Path) -> Optional[List[str]]:
         """Build the start command for a game server"""
@@ -397,6 +523,11 @@ class ServerManager:
                 f"+hostname \"{server_name}\""
             ])
         
+        elif game == "assetto_corsa":
+            # AC reads all config from cfg/server_cfg.ini — no CLI overrides needed.
+            # cfg/ is generated by _generate_ac_config before this runs.
+            pass
+
         elif game == "teamspeak3":
             cmd.extend([
                 f"voice_port={port}",
