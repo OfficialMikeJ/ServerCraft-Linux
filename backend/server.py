@@ -584,7 +584,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": True,
         "default_port": 2001,
         "port_range": GAME_PORT_RANGES["arma_reforger"],
-        "executable": "ArmaReforgerServer.exe",
+        "executable": "ArmaReforgerServer",
         "workshop_id": "1874900",
         "tags": [
             {"name": "milsim", "color": "#22c55e"},
@@ -2321,6 +2321,48 @@ async def delete_server_file(server_id: str, file_path: str):
     else:
         target.unlink()
     return {"success": True}
+
+
+# Arma Reforger-specific routes
+@api_router.put("/servers/{server_id}/reforger/scenario")
+async def update_reforger_scenario(server_id: str, request: Request):
+    server = server_manager.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if server.get("game") != "arma_reforger":
+        raise HTTPException(status_code=400, detail="Server is not an Arma Reforger server")
+
+    body = await request.json()
+    scenario_id = body.get("scenario_id")
+    mods = body.get("mods")  # list of {"modId": ..., "name": ...} or None to leave unchanged
+
+    if not scenario_id:
+        raise HTTPException(status_code=400, detail="scenario_id is required")
+
+    server_path = server_manager.servers_path / server_id
+    config_path = server_path / "ServerConfig.json"
+
+    existing = {}
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
+    game_block = existing.get("game", {})
+    game_block["scenarioId"] = scenario_id
+    if mods is not None:
+        game_block["mods"] = mods
+    existing["game"] = game_block
+
+    with open(config_path, "w") as f:
+        json.dump(existing, f, indent=2)
+
+    # Keep in-memory server record in sync
+    server_manager.update_server(server_id, {"scenario_id": scenario_id})
+
+    return {"success": True, "scenario_id": scenario_id}
 
 
 # UPnP Routes

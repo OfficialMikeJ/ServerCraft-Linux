@@ -1524,26 +1524,49 @@ function App() {
     };
     
     // Nav tabs filtered by role
+    const hasReforgerServers = servers.some(s => s.game === 'arma_reforger');
+
     const getVisibleNavTabs = () => {
-        const allTabs = ['dashboard', 'servers', ...(settings.clustering_enabled ? ['clusters'] : []), 'steamcmd', 'workshop', 'marketplace', 'users', 'feedback', 'settings', 'about'];
-        
+        const allTabs = [
+            'dashboard',
+            'servers',
+            ...(hasReforgerServers ? ['reforger'] : []),
+            ...(settings.clustering_enabled ? ['clusters'] : []),
+            'steamcmd',
+            'workshop',
+            'marketplace',
+            'users',
+            'feedback',
+            'settings',
+            'about',
+        ];
+
         if (!isSubUser) return allTabs; // Admin = all tabs
-        
+
         if (userRole === 'admin') return allTabs;
-        
+
         if (userRole === 'moderator') {
             // Moderators: can see servers, workshop, marketplace, feedback, about
             return allTabs.filter(t => !['users', 'settings', 'steamcmd', 'clusters'].includes(t));
         }
-        
+
         if (userRole === 'viewer') {
             // Viewers: dashboard, servers (read-only), marketplace (browse), about
             return ['dashboard', 'servers', 'marketplace', 'about'];
         }
-        
+
         return allTabs;
     };
-    
+
+    const TAB_LABELS = { reforger: 'Arma Reforger' };
+
+    // Auto-redirect away from reforger tab when all Reforger servers are gone
+    useEffect(() => {
+        if (currentView === 'reforger' && !hasReforgerServers) {
+            setCurrentView('dashboard');
+        }
+    }, [hasReforgerServers, currentView]);
+
     // Refs for WebSocket and intervals
     const statsWsRef = useRef(null);
     const pollIntervalRef = useRef(null);
@@ -2430,7 +2453,7 @@ function App() {
                             onClick={() => setCurrentView(view)}
                             data-testid={`nav-${view}`}
                         >
-                            {view.charAt(0).toUpperCase() + view.slice(1)}
+                            {TAB_LABELS[view] || (view.charAt(0).toUpperCase() + view.slice(1))}
                         </button>
                     ))}
                 </nav>
@@ -2560,6 +2583,18 @@ function App() {
                         setBgCategory={setBgCategory}
                     />
                     )
+                )}
+
+                {/* Arma Reforger Panel — only rendered when at least one Reforger server exists */}
+                {currentView === 'reforger' && hasReforgerServers && (
+                    <ReforgerView
+                        servers={servers.filter(s => s.game === 'arma_reforger')}
+                        onStartServer={hasPermission('server.start') ? startServer : null}
+                        onStopServer={hasPermission('server.stop') ? stopServer : null}
+                        onRestartServer={hasPermission('server.restart') ? restartServer : null}
+                        showToast={showToast}
+                        apiBase={API_BASE}
+                    />
                 )}
 
                 {/* About */}
@@ -2794,6 +2829,361 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
         </div>
     );
 }
+
+// ─── Arma Reforger Panel ────────────────────────────────────────────────────
+
+const REFORGER_SCENARIOS = [
+    // ── Official Conflict ──────────────────────────────────────────────────
+    { group: 'Conflict', label: 'Conflict — Everon',          id: '{ECC61978EDCC2B5A}Missions/23_Campaign.conf',              mods: [] },
+    { group: 'Conflict', label: 'Conflict — Arland',          id: '{C41618FD18E9D714}Missions/23_Campaign_Arland.conf',       mods: [] },
+    { group: 'Conflict', label: 'Conflict — Northern Everon', id: '{C700DB41F0C546E1}Missions/23_Campaign_NorthCentral.conf', mods: [] },
+    { group: 'Conflict', label: 'Conflict — Southern Everon', id: '{28802845ADA64D52}Missions/23_Campaign_SWCoast.conf',      mods: [] },
+    { group: 'Conflict', label: 'Conflict — Western Everon',  id: '{94992A3D7CE4FF8A}Missions/23_Campaign_Western.conf',      mods: [] },
+    { group: 'Conflict', label: 'Conflict — Montignac',       id: '{FDE33AFE2ED7875B}Missions/23_Campaign_Montignac.conf',   mods: [] },
+    // ── HQ Commander ──────────────────────────────────────────────────────
+    { group: 'Conflict: HQ Commander', label: 'HQ Commander — Everon',   id: '{0220741028718E7F}Missions/23_Campaign_HQC_Everon.conf', mods: [] },
+    { group: 'Conflict: HQ Commander', label: 'HQ Commander — Arland',   id: '{68D1240A11492545}Missions/23_Campaign_HQC_Arland.conf', mods: [] },
+    { group: 'Conflict: HQ Commander', label: 'HQ Commander — Kolguyev', id: '{BB5345C22DD2B655}Missions/23_Campaign_HQC_Cain.conf',   mods: [] },
+    // ── Combat Ops ────────────────────────────────────────────────────────
+    { group: 'Combat Ops', label: 'Combat Ops — Everon',  id: '{DFAC5FABD11F2390}Missions/26_CombatOpsEveron.conf', mods: [] },
+    { group: 'Combat Ops', label: 'Combat Ops — Arland',  id: '{DAA03C6E6099D50F}Missions/24_CombatOps.conf',       mods: [] },
+    { group: 'Combat Ops', label: 'Combat Ops — Kolguyev',id: '{CB347F2F10065C9C}Missions/CombatOpsCain.conf',     mods: [] },
+    // ── Game Master ───────────────────────────────────────────────────────
+    { group: 'Game Master', label: 'Game Master — Everon',  id: '{59AD59368755F41A}Missions/21_GM_Eden.conf',   mods: [] },
+    { group: 'Game Master', label: 'Game Master — Arland',  id: '{2BBBE828037C6F4B}Missions/22_GM_Arland.conf', mods: [] },
+    { group: 'Game Master', label: 'Game Master — Kolguyev',id: '{F45C6C15D31252E6}Missions/27_GM_Cain.conf',   mods: [] },
+    // ── Capture & Hold ────────────────────────────────────────────────────
+    { group: 'Capture & Hold', label: 'CAH — Briars Coast',    id: '{3F2E005F43DBD2F8}Missions/CAH_Briars_Coast.conf',   mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Montfort Castle', id: '{F1A1BEA67132113E}Missions/CAH_Castle.conf',          mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Concrete Plant',  id: '{589945FB9FA7B97D}Missions/CAH_Concrete_Plant.conf',  mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Almara Factory',  id: '{9405201CBD22A30C}Missions/CAH_Factory.conf',         mods: [] },
+    { group: 'Capture & Hold', label: "CAH — Simon's Wood",    id: '{1CD06B409C6FAE56}Missions/CAH_Forest.conf',          mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Le Moule',        id: '{7C491B1FCC0FF0E1}Missions/CAH_LeMoule.conf',         mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Camp Blake',      id: '{6EA2E454519E5869}Missions/CAH_Military_Base.conf',   mods: [] },
+    { group: 'Capture & Hold', label: 'CAH — Morton',          id: '{2B4183DF23E88249}Missions/CAH_Morton.conf',          mods: [] },
+    // ── Workshop — Freedom Fighters ───────────────────────────────────────
+    {
+        group: 'Freedom Fighters (Workshop)',
+        label: 'Freedom Fighters — Everon',
+        id: '{64B2F8D8059EE270}Missions/FreedomFighters/Everon.conf',
+        mods: [
+            { modId: 'CAFEBEEFF0CACC1A', name: 'Freedom Fighters' },
+            { modId: '5D6EA74A94173EDF', name: 'Enfusion Database Framework' },
+            { modId: '5D6EBC81EB1842EF', name: 'Enfusion Persistence Framework' },
+        ],
+    },
+    {
+        group: 'Freedom Fighters (Workshop)',
+        label: 'Freedom Fighters — Arland',
+        id: '{E2EC49F13FBAC56F}Missions/FreedomFighters/Arland.conf',
+        mods: [
+            { modId: 'CAFEBEEFF0CACC1A', name: 'Freedom Fighters' },
+            { modId: '5D6EA74A94173EDF', name: 'Enfusion Database Framework' },
+            { modId: '5D6EBC81EB1842EF', name: 'Enfusion Persistence Framework' },
+        ],
+    },
+    {
+        group: 'Freedom Fighters (Workshop)',
+        label: 'Freedom Fighters — Kolguyev',
+        id: '{3AD5C3E6BB400639}Missions/FreedomFighters/Kolguyev.conf',
+        mods: [
+            { modId: 'CAFEBEEFF0CACC1A', name: 'Freedom Fighters' },
+            { modId: '5D6EA74A94173EDF', name: 'Enfusion Database Framework' },
+            { modId: '5D6EBC81EB1842EF', name: 'Enfusion Persistence Framework' },
+        ],
+    },
+];
+
+function ReforgerView({ servers, onStartServer, onStopServer, onRestartServer, showToast, apiBase }) {
+    const [subTab, setSubTab] = React.useState('servers');
+    // Scenarios sub-tab state
+    const [selectedServerId, setSelectedServerId] = React.useState(servers[0]?.id || '');
+    const [selectedScenario, setSelectedScenario] = React.useState('');
+    const [scenarioSaving, setScenarioSaving] = React.useState(false);
+
+    // Keep selectedServerId valid when server list changes
+    React.useEffect(() => {
+        if (!servers.find(s => s.id === selectedServerId) && servers.length > 0) {
+            setSelectedServerId(servers[0].id);
+        }
+    }, [servers, selectedServerId]);
+
+    const saveScenario = async () => {
+        if (!selectedServerId || !selectedScenario) return;
+        const scenario = REFORGER_SCENARIOS.find(s => s.id === selectedScenario);
+        if (!scenario) return;
+
+        setScenarioSaving(true);
+        try {
+            const res = await fetch(`${apiBase}/api/servers/${selectedServerId}/reforger/scenario`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scenario_id: scenario.id, mods: scenario.mods }),
+            });
+            if (res.ok) {
+                showToast(`Scenario saved to ServerConfig.json`, 'success');
+            } else {
+                const d = await res.json().catch(() => ({}));
+                showToast(d.detail || 'Failed to save scenario', 'error');
+            }
+        } catch {
+            showToast('Network error saving scenario', 'error');
+        } finally {
+            setScenarioSaving(false);
+        }
+    };
+
+    const selectedScenarioObj = REFORGER_SCENARIOS.find(s => s.id === selectedScenario);
+
+    // Group scenarios for the <select> element
+    const groups = [...new Set(REFORGER_SCENARIOS.map(s => s.group))];
+
+    return (
+        <section className="view active" data-testid="reforger-view">
+            <div className="view-header">
+                <h1><i className="fas fa-crosshairs" style={{ marginRight: 10, color: '#22c55e' }}></i>Arma Reforger</h1>
+                <p className="subtitle">Manage all Arma Reforger servers from one place</p>
+            </div>
+
+            {/* Sub-tab bar */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+                {['servers', 'scenarios', 'mods'].map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setSubTab(tab)}
+                        style={{
+                            padding: '8px 20px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontWeight: subTab === tab ? 700 : 400,
+                            color: subTab === tab ? '#22c55e' : 'var(--text-secondary)',
+                            borderBottom: subTab === tab ? '2px solid #22c55e' : '2px solid transparent',
+                            marginBottom: -1,
+                            fontSize: 14,
+                            textTransform: 'capitalize',
+                            transition: 'color 0.15s',
+                        }}
+                    >
+                        {tab === 'servers' && <><i className="fas fa-server" style={{ marginRight: 6 }}></i>Servers</>}
+                        {tab === 'scenarios' && <><i className="fas fa-map" style={{ marginRight: 6 }}></i>Scenarios</>}
+                        {tab === 'mods' && <><i className="fas fa-puzzle-piece" style={{ marginRight: 6 }}></i>Mods</>}
+                    </button>
+                ))}
+            </div>
+
+            {/* ── Servers sub-tab ─────────────────────────────────────────────── */}
+            {subTab === 'servers' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {servers.map(server => {
+                        const running = server.status === 'running';
+                        const installing = server.status === 'installing';
+                        return (
+                            <div
+                                key={server.id}
+                                style={{
+                                    background: 'var(--bg-secondary)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 10,
+                                    padding: '16px 20px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 16,
+                                    flexWrap: 'wrap',
+                                }}
+                                data-testid={`reforger-server-${server.id}`}
+                            >
+                                {/* Status dot */}
+                                <span style={{
+                                    width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                                    background: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280',
+                                    boxShadow: running ? '0 0 6px #22c55e' : 'none',
+                                }}></span>
+
+                                {/* Name + meta */}
+                                <div style={{ flex: 1, minWidth: 180 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 15 }}>{server.name}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                        Port {server.port} &nbsp;·&nbsp; {server.max_players || 32} players max
+                                        {server.scenario_id && (
+                                            <> &nbsp;·&nbsp; <span style={{ color: '#a78bfa' }}>{REFORGER_SCENARIOS.find(s => s.id === server.scenario_id)?.label || server.scenario_id}</span></>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Status badge */}
+                                <span style={{
+                                    padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                                    background: running ? 'rgba(34,197,94,0.12)' : installing ? 'rgba(245,158,11,0.12)' : 'rgba(107,114,128,0.12)',
+                                    color: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280',
+                                }}>
+                                    {server.status || 'stopped'}
+                                </span>
+
+                                {/* Controls */}
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {!running && !installing && onStartServer && (
+                                        <button className="btn btn-green btn-sm" onClick={() => onStartServer(server.id)}>
+                                            <i className="fas fa-play"></i> Start
+                                        </button>
+                                    )}
+                                    {running && onStopServer && (
+                                        <button className="btn btn-red btn-sm" onClick={() => onStopServer(server.id)}>
+                                            <i className="fas fa-stop"></i> Stop
+                                        </button>
+                                    )}
+                                    {running && onRestartServer && (
+                                        <button className="btn btn-sm" onClick={() => onRestartServer(server.id)}>
+                                            <i className="fas fa-redo"></i> Restart
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ── Scenarios sub-tab ────────────────────────────────────────────── */}
+            {subTab === 'scenarios' && (
+                <div style={{ maxWidth: 620 }}>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: 20, fontSize: 14 }}>
+                        Select a server and scenario, then click <strong>Save</strong> to write the change into that server&apos;s <code>ServerConfig.json</code>.
+                        Workshop scenarios automatically inject their required mods.
+                        Restart the server after saving to apply the new scenario.
+                    </p>
+
+                    {/* Server picker (only shown when multiple Reforger servers exist) */}
+                    {servers.length > 1 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13 }}>Server</label>
+                            <select
+                                value={selectedServerId}
+                                onChange={e => setSelectedServerId(e.target.value)}
+                                className="form-select"
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14 }}
+                            >
+                                {servers.map(s => (
+                                    <option key={s.id} value={s.id}>{s.name} (port {s.port})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Scenario picker */}
+                    <div style={{ marginBottom: 20 }}>
+                        <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13 }}>Scenario</label>
+                        <select
+                            value={selectedScenario}
+                            onChange={e => setSelectedScenario(e.target.value)}
+                            style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14 }}
+                        >
+                            <option value="">— Select a scenario —</option>
+                            {groups.map(group => (
+                                <optgroup key={group} label={group}>
+                                    {REFORGER_SCENARIOS.filter(s => s.group === group).map(s => (
+                                        <option key={s.id} value={s.id}>{s.label}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Scenario info box */}
+                    {selectedScenarioObj && (
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 13 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 6 }}>{selectedScenarioObj.label}</div>
+                            <div style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all', marginBottom: 8 }}>
+                                {selectedScenarioObj.id}
+                            </div>
+                            {selectedScenarioObj.mods.length > 0 ? (
+                                <>
+                                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4, color: '#f59e0b' }}>
+                                        <i className="fas fa-puzzle-piece" style={{ marginRight: 4 }}></i>Required mods ({selectedScenarioObj.mods.length}) — will be written to ServerConfig.json:
+                                    </div>
+                                    <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 12 }}>
+                                        {selectedScenarioObj.mods.map(m => (
+                                            <li key={m.modId}>{m.name} <span style={{ opacity: 0.6 }}>({m.modId})</span></li>
+                                        ))}
+                                    </ul>
+                                </>
+                            ) : (
+                                <div style={{ color: '#22c55e', fontSize: 12 }}>
+                                    <i className="fas fa-check-circle" style={{ marginRight: 4 }}></i>No mods required — vanilla scenario
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Save button */}
+                    <button
+                        onClick={saveScenario}
+                        disabled={!selectedScenario || !selectedServerId || scenarioSaving}
+                        style={{
+                            padding: '10px 28px',
+                            background: !selectedScenario || scenarioSaving ? 'rgba(59,130,246,0.3)' : '#3b82f6',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            fontWeight: 700,
+                            fontSize: 14,
+                            cursor: !selectedScenario || scenarioSaving ? 'not-allowed' : 'pointer',
+                            transition: 'background 0.15s',
+                        }}
+                    >
+                        {scenarioSaving
+                            ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Saving…</>
+                            : <><i className="fas fa-save" style={{ marginRight: 6 }}></i>Save Scenario</>
+                        }
+                    </button>
+                </div>
+            )}
+
+            {/* ── Mods sub-tab ─────────────────────────────────────────────────── */}
+            {subTab === 'mods' && (
+                <div style={{ maxWidth: 620 }}>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: 20, fontSize: 14 }}>
+                        Mods are automatically injected into <code>ServerConfig.json</code> when you save a workshop scenario from the <strong>Scenarios</strong> tab.
+                        The table below shows the mods currently written into each server&apos;s config.
+                    </p>
+                    {servers.map(server => (
+                        <div key={server.id} style={{ marginBottom: 24 }}>
+                            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
+                                <i className="fas fa-server" style={{ marginRight: 6, color: '#22c55e' }}></i>{server.name}
+                            </div>
+                            {server.mods && server.mods.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                    <thead>
+                                        <tr style={{ color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                                            <th style={{ padding: '4px 10px 6px 0' }}>Mod Name</th>
+                                            <th style={{ padding: '4px 0 6px' }}>Mod ID</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {server.mods.map((mod, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                                <td style={{ padding: '5px 10px 5px 0' }}>{typeof mod === 'string' ? mod : mod.name || mod.modId}</td>
+                                                <td style={{ padding: '5px 0', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)' }}>
+                                                    {typeof mod === 'string' ? mod : mod.modId}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '8px 0' }}>
+                                    No mods configured — go to the Scenarios tab to add a workshop scenario.
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 // Dashboard View Component
 function DashboardView({ systemStats, servers, games, runningServers, stoppedServers, onStartServer, onStopServer, onOpenServer, onNavigate }) {

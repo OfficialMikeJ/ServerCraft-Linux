@@ -144,6 +144,12 @@ class ServerManager:
             return {"success": False, "error": "Server files not installed"}
 
         try:
+            # Generate game-specific config files before starting
+            if game == "arma_reforger":
+                port = server.get("port", game_def.get("default_port", 2001))
+                query_port = server.get("query_port", port + 1)
+                self._generate_reforger_config(server, server_path, port, query_port)
+
             # Build start command based on game
             cmd = self._build_start_command(server, game_def, server_path)
 
@@ -180,6 +186,84 @@ class ServerManager:
             logger.error(f"Failed to start server: {e}")
             return {"success": False, "error": str(e)}
     
+    def _generate_reforger_config(self, server: Dict, server_path: Path, port: int, query_port: int) -> None:
+        """Write ServerConfig.json for Arma Reforger, merging server settings into the template."""
+        config_path = server_path / "ServerConfig.json"
+
+        # Preserve any keys the user may have hand-edited outside ServerCraft
+        existing = {}
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+
+        mods = [{"modId": m, "name": m} for m in server.get("mods", [])]
+
+        game_block = existing.get("game", {})
+        game_block.update({
+            "name": server.get("name", "ServerCraft Server"),
+            "password": server.get("password", ""),
+            "passwordAdmin": server.get("admin_password", "admin"),
+            "scenarioId": server.get("scenario_id",
+                "{ECC61978EDCC2B5A}Missions/23_Campaign.conf"),
+            "maxPlayers": server.get("max_players", 32),
+            "mods": mods,
+        })
+        game_block.setdefault("admins", [])
+        game_block.setdefault("visible", True)
+        game_block.setdefault("crossPlatform", True)
+        game_block.setdefault("supportedPlatforms", ["PLATFORM_PC", "PLATFORM_XBL"])
+        game_block.setdefault("gameProperties", {
+            "serverMaxViewDistance": 2500,
+            "serverMinGrassDistance": 50,
+            "networkViewDistance": 1500,
+            "disableThirdPerson": False,
+            "fastValidation": True,
+            "battlEye": True,
+            "VONDisableUI": False,
+            "VONDisableDirectSpeechUI": False,
+            "missionHeader": {
+                "m_iPlayerCount": server.get("max_players", 40),
+                "m_eEditableGameFlags": 6,
+                "m_eDefaultGameFlags": 6,
+            },
+        })
+
+        config = {
+            "bindAddress": existing.get("bindAddress", "0.0.0.0"),
+            "bindPort": port,
+            "publicAddress": existing.get("publicAddress", ""),
+            "publicPort": port,
+            "a2s": {"address": "0.0.0.0", "port": query_port},
+            "rcon": existing.get("rcon", {
+                "address": "0.0.0.0",
+                "port": 19999,
+                "password": "",
+                "permission": "admin",
+                "blacklist": [],
+                "whitelist": [],
+            }),
+            "game": game_block,
+            "operating": existing.get("operating", {
+                "lobbyPlayerSynchronise": True,
+                "joinQueue": {"maxSize": 0},
+                "disableNavmeshStreaming": None,
+                "disableServerShutdown": False,
+                "disableCrashReporter": False,
+                "disableAI": False,
+                "playerSaveTime": 120,
+                "aiLimit": -1,
+                "slotReservationTimeout": 60,
+            }),
+        }
+
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        logger.info(f"Generated ServerConfig.json for Arma Reforger server '{server.get('name')}'")
+
     def _build_start_command(self, server: Dict, game_def: Dict, server_path: Path) -> Optional[List[str]]:
         """Build the start command for a game server"""
         exe = game_def.get("executable")
@@ -187,13 +271,20 @@ class ServerManager:
         
         exe_path = server_path / exe
         if not exe_path.exists():
-            # Try to find executable
+            # Fallback: look for common executable types (Windows) or
+            # executable files without extension (Linux).
             for pattern in ["*.exe", "*.bat", "*.jar"]:
                 matches = list(server_path.glob(pattern))
                 if matches:
                     exe_path = matches[0]
                     break
-        
+            else:
+                import os
+                for candidate in server_path.iterdir():
+                    if candidate.is_file() and os.access(candidate, os.X_OK) and "." not in candidate.name:
+                        exe_path = candidate
+                        break
+
         if not exe_path.exists():
             return None
         
@@ -221,23 +312,18 @@ class ServerManager:
                 cmd.append(f"-mod={mods_str}")
         
         elif game == "arma_reforger":
-            # Arma Reforger uses Enfusion engine with JSON config
+            # Arma Reforger uses Enfusion engine with JSON config.
+            # ServerConfig.json is generated by start_server before this runs.
             cmd.extend([
                 "-config", "ServerConfig.json",
-                f"-maxPlayers {max_players}",
-                f"-bindPort {port}",
-                f"-publicPort {port}",
-                f"-a2sPort {query_port}",
+                "-maxPlayers", str(max_players),
+                "-bindPort", str(port),
+                "-publicPort", str(port),
+                "-a2sPort", str(query_port),
                 "-backendlog",
                 "-nothrow",
-                "-logStats", "5000"
+                "-logStats", "5000",
             ])
-            if server.get("password"):
-                cmd.append(f"-password {server['password']}")
-            if server.get("mods"):
-                # Reforger mods use -addons flag
-                for mod_id in server["mods"]:
-                    cmd.extend(["-addons", mod_id])
         
         elif game in ("dayz_vanilla", "dayz_modded"):
             cmd.extend([
