@@ -517,7 +517,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": True,
         "default_port": 2302,
         "port_range": GAME_PORT_RANGES["arma3"],
-        "executable": "arma3server_x64.exe",
+        "executable": "arma3server_x64",
         "workshop_id": "107410",
         "tags": [
             {"name": "milsim", "color": "#22c55e"},
@@ -534,7 +534,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 2302,
         "port_range": GAME_PORT_RANGES["dayz_vanilla"],
-        "executable": "DayZServer_x64.exe",
+        "executable": "DayZServer",
         "workshop_id": "221100",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -551,7 +551,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 2302,
         "port_range": GAME_PORT_RANGES["dayz_modded"],
-        "executable": "DayZServer_x64.exe",
+        "executable": "DayZServer",
         "workshop_id": "221100",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -568,7 +568,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 28015,
         "port_range": GAME_PORT_RANGES["rust"],
-        "executable": "RustDedicated.exe",
+        "executable": "RustDedicated",
         "workshop_id": "252490",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -602,7 +602,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 16261,
         "port_range": GAME_PORT_RANGES["project_zomboid"],
-        "executable": "StartServer64.bat",
+        "executable": "start-server.sh",
         "workshop_id": "108600",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -619,7 +619,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 2456,
         "port_range": GAME_PORT_RANGES["valheim"],
-        "executable": "valheim_server.exe",
+        "executable": "valheim_server.x86_64",
         "workshop_id": "892970",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -636,7 +636,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 7787,
         "port_range": GAME_PORT_RANGES["squad"],
-        "executable": "SquadGameServer.exe",
+        "executable": "SquadGameServer",
         "workshop_id": "393380",
         "tags": [
             {"name": "milsim", "color": "#22c55e"},
@@ -653,7 +653,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 7777,
         "port_range": GAME_PORT_RANGES["ground_branch"],
-        "executable": "GroundBranchServer.exe",
+        "executable": "GroundBranchServer",
         "workshop_id": "16900",
         "tags": [
             {"name": "tactical", "color": "#f59e0b"},
@@ -670,7 +670,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 17777,
         "port_range": GAME_PORT_RANGES["icarus"],
-        "executable": "IcarusServer.exe",
+        "executable": "IcarusServer",
         "workshop_id": "1149460",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -687,7 +687,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 7777,
         "port_range": GAME_PORT_RANGES["no_one_survived"],
-        "executable": "NoOneSurvivedServer.exe",
+        "executable": "NoOneSurvivedServer",
         "workshop_id": "1963370",
         "tags": [
             {"name": "survival", "color": "#ef4444"},
@@ -704,7 +704,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 30120,
         "port_range": GAME_PORT_RANGES["fivem"],
-        "executable": "FXServer.exe",
+        "executable": "run.sh",
         "workshop_id": None,
         "custom_install": True,
         "tags": [
@@ -722,7 +722,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 27015,
         "port_range": GAME_PORT_RANGES["source_engine"],
-        "executable": "srcds.exe",
+        "executable": "srcds_run",
         "workshop_id": None,
         "tags": [
             {"name": "fps", "color": "#f97316"},
@@ -757,7 +757,7 @@ GAME_DEFINITIONS = {
         "requires_ownership": False,
         "default_port": 9987,
         "port_range": GAME_PORT_RANGES["teamspeak3"],
-        "executable": "ts3server.exe",
+        "executable": "ts3server",
         "workshop_id": None,
         "custom_install": True,
         "tags": [
@@ -2188,9 +2188,17 @@ async def install_game_server(server_id: str):
 
     await broadcast_line(f"=== Installing {game_def['name']} ===")
 
-    # Minecraft uses a custom install — download server JAR directly from Mojang
+    # Games with custom (non-SteamCMD) install handlers
     if game == "minecraft":
         return await _install_minecraft(server_id, on_output=broadcast_line)
+    if game == "fivem":
+        return await _install_fivem(server_id, on_output=broadcast_line)
+    if game == "teamspeak3":
+        return await _install_teamspeak3(server_id, on_output=broadcast_line)
+
+    # Guard: games with no Steam app ID cannot use SteamCMD
+    if not game_def.get("server_app_id"):
+        raise HTTPException(status_code=400, detail=f"{game_def['name']} does not support automatic installation")
 
     result = await steamcmd_manager.install_game(
         server_id,
@@ -2278,6 +2286,152 @@ async def _install_minecraft(server_id: str, on_output=None) -> dict:
         logger.error(f"Minecraft install failed: {e}")
         await _out(f"[Minecraft] ERROR: {e}")
         return {"success": False, "error": str(e)}
+
+
+async def _install_fivem(server_id: str, on_output=None) -> dict:
+    """Download FiveM server from cfx.re artifacts (Linux fx.tar.xz)."""
+    import aiohttp, tarfile, io, re
+
+    server_path = server_manager.servers_path / server_id
+    server_path.mkdir(parents=True, exist_ok=True)
+
+    async def _out(msg: str):
+        logger.info(msg)
+        if on_output:
+            await on_output(msg)
+
+    try:
+        ARTIFACTS_BASE = "https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/"
+        await _out("[FiveM] Fetching latest build from cfx.re…")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(ARTIFACTS_BASE, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status != 200:
+                    await _out(f"[FiveM] ERROR: Could not reach cfx.re (HTTP {r.status})")
+                    return {"success": False, "error": "Could not reach cfx.re artifacts"}
+                html = await r.text()
+
+            builds = re.findall(r'href="(\d{4,})/', html)
+            if not builds:
+                await _out("[FiveM] ERROR: Could not parse build number from artifacts listing")
+                return {"success": False, "error": "Could not parse build number"}
+
+            latest_build = sorted(set(builds), key=int)[-1]
+            await _out(f"[FiveM] Latest build: {latest_build}")
+
+            fx_url = f"{ARTIFACTS_BASE}{latest_build}/fx.tar.xz"
+            await _out(f"[FiveM] Downloading fx.tar.xz (build {latest_build})…")
+
+            async with session.get(fx_url, timeout=aiohttp.ClientTimeout(total=300)) as r:
+                if r.status != 200:
+                    await _out(f"[FiveM] ERROR: Download failed (HTTP {r.status})")
+                    return {"success": False, "error": f"Download failed (HTTP {r.status})"}
+                data = await r.read()
+
+        await _out("[FiveM] Extracting server files…")
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:xz") as tf:
+            tf.extractall(server_path)
+
+        # Make run.sh executable
+        run_sh = server_path / "run.sh"
+        if run_sh.exists():
+            run_sh.chmod(run_sh.stat().st_mode | 0o111)
+
+        # Write a minimal server.cfg if none exists
+        cfg = server_path / "server.cfg"
+        if not cfg.exists():
+            await _out("[FiveM] Writing default server.cfg…")
+            cfg.write_text(
+                "# FiveM Server — generated by ServerCraft\n"
+                "sv_maxclients 32\n"
+                'sv_hostname "ServerCraft FiveM Server"\n'
+                "# sv_licenseKey \"your-license-key-here\"\n"
+                "# Add resources below:\n"
+                "# start mapmanager\n"
+                "# start chat\n"
+            )
+
+        await _out(f"[FiveM] Build {latest_build} installed successfully!")
+        return {"success": True, "message": f"FiveM build {latest_build} installed successfully"}
+
+    except Exception as e:
+        logger.error(f"FiveM install failed: {e}")
+        await _out(f"[FiveM] ERROR: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def _install_teamspeak3(server_id: str, on_output=None) -> dict:
+    """Download TeamSpeak 3 server from teamspeak-services.com."""
+    import aiohttp, tarfile, io, shutil
+
+    server_path = server_manager.servers_path / server_id
+    server_path.mkdir(parents=True, exist_ok=True)
+
+    async def _out(msg: str):
+        logger.info(msg)
+        if on_output:
+            await on_output(msg)
+
+    # Fallback version if version API is unreachable
+    FALLBACK_VERSION = "3.13.7"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Try to get the latest version from TeamSpeak's version API
+            version = FALLBACK_VERSION
+            try:
+                async with session.get(
+                    "https://www.teamspeak.com/versions/server.json",
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as r:
+                    if r.status == 200:
+                        vdata = await r.json(content_type=None)
+                        version = vdata.get("linux", {}).get("x86_64", {}).get("version", FALLBACK_VERSION)
+            except Exception:
+                pass
+
+            await _out(f"[TeamSpeak 3] Downloading version {version}…")
+            dl_url = (
+                f"https://files.teamspeak-services.com/releases/server/{version}/"
+                f"teamspeak3-server_linux_amd64-{version}.tar.bz2"
+            )
+
+            async with session.get(dl_url, timeout=aiohttp.ClientTimeout(total=120)) as r:
+                if r.status != 200:
+                    await _out(f"[TeamSpeak 3] ERROR: Download failed (HTTP {r.status})")
+                    return {"success": False, "error": f"Download failed (HTTP {r.status})"}
+                data = await r.read()
+
+        await _out("[TeamSpeak 3] Extracting server files…")
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:bz2") as tf:
+            tf.extractall(server_path)
+
+        # TS3 extracts into teamspeak3-server_linux_amd64/ — flatten one level
+        extracted = [d for d in server_path.iterdir() if d.is_dir() and "teamspeak" in d.name.lower()]
+        if extracted:
+            for item in extracted[0].iterdir():
+                dest = server_path / item.name
+                if not dest.exists():
+                    shutil.move(str(item), str(dest))
+            extracted[0].rmdir()
+
+        # Accept the license
+        (server_path / ".ts3server_license_accepted").touch()
+
+        # Make the binary executable
+        ts3bin = server_path / "ts3server"
+        if ts3bin.exists():
+            ts3bin.chmod(ts3bin.stat().st_mode | 0o111)
+
+        await _out("[TeamSpeak 3] License accepted automatically.")
+        await _out(f"[TeamSpeak 3] Version {version} installed successfully!")
+        return {"success": True, "message": f"TeamSpeak 3 {version} server installed successfully"}
+
+    except Exception as e:
+        logger.error(f"TeamSpeak3 install failed: {e}")
+        await _out(f"[TeamSpeak 3] ERROR: {e}")
+        return {"success": False, "error": str(e)}
+
 
 @api_router.get("/servers/{server_id}/install/status")
 async def get_install_status(server_id: str):

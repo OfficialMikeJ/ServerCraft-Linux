@@ -54,10 +54,21 @@ class AuthManager:
         if not self.sessions_file.exists():
             self._save_sessions({})
     
+    def _get_salt(self) -> str:
+        """Return a per-installation salt, generating and persisting one on first call.
+        Existing installs fall back to the legacy static salt so stored hashes stay valid."""
+        salt_file = self.data_path / ".auth_salt"
+        if salt_file.exists():
+            return salt_file.read_text().strip()
+        # Existing install: preserve the old hash by writing the legacy salt
+        # New install: generate a cryptographically random salt
+        salt = "servercraft_2026" if self.auth_file.exists() else secrets.token_hex(32)
+        salt_file.write_text(salt)
+        return salt
+
     def _hash_password(self, password: str) -> str:
-        """Hash password using SHA-256 with salt"""
-        salt = "servercraft_2026"  # Static salt for local app
-        return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        """Hash password using SHA-256 with a per-installation salt."""
+        return hashlib.sha256(f"{self._get_salt()}{password}".encode()).hexdigest()
     
     def _load_auth(self) -> Dict:
         """Load auth data from file"""

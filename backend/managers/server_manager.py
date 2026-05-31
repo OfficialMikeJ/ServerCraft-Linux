@@ -473,14 +473,18 @@ class ServerManager:
             cmd.extend([
                 "-nographics",
                 "-batchmode",
-                f"-port {port}",
-                f"-name \"{server_name}\"",
-                "-world \"ServerCraft\""
+                "-port", str(port),
+                "-name", server_name,
+                "-world", "ServerCraft",
+                "-savedir", str(server_path / "worlds"),
             ])
         
         elif game == "project_zomboid":
-            # PZ uses batch file
-            pass
+            # PZ reads most config from Zomboid/Server/{name}.ini; only servername needed on CLI
+            safe_name = server_name.replace(' ', '_')
+            cmd.extend([
+                "-servername", safe_name,
+            ])
         
         elif game == "squad":
             cmd.extend([
