@@ -505,7 +505,9 @@ GAME_PORT_RANGES = {
     "source_engine": {"start": 27015, "end": 27114, "query_offset": 0},
     "minecraft": {"start": 25565, "end": 25664, "query_offset": 0},
     "teamspeak3": {"start": 9987, "end": 10086, "query_offset": 10024},
-    "assetto_corsa": {"start": 9600, "end": 9699, "query_offset": 0},
+    "assetto_corsa":  {"start": 9600,  "end": 9699,  "query_offset": 0},
+    "plutonium_t6":   {"start": 28961, "end": 29060, "query_offset": 0},
+    "plutonium_iw5":  {"start": 4976,  "end": 5075,  "query_offset": 0},
 }
 
 GAME_DEFINITIONS = {
@@ -785,6 +787,46 @@ GAME_DEFINITIONS = {
             {"name": "modding", "color": "#8b5cf6"}
         ],
         "description": "Premier PC racing simulation with extensive modding support"
+    },
+    "plutonium_t6": {
+        "name": "Call of Duty: Black Ops 2 (Plutonium)",
+        "app_id": None,
+        "server_app_id": None,
+        "requires_login": False,
+        "requires_ownership": True,
+        "default_port": 28961,
+        "port_range": GAME_PORT_RANGES["plutonium_t6"],
+        "executable": "start.sh",
+        "workshop_id": None,
+        "custom_install": True,
+        "tags": [
+            {"name": "call-of-duty", "color": "#ef4444"},
+            {"name": "plutonium",    "color": "#f59e0b"},
+            {"name": "bo2",          "color": "#8b5cf6"}
+        ],
+        "description": "Black Ops 2 dedicated server via Plutonium. Requires legally owned game files, a Plutonium forum account, and a Plutonium Server Key. Runs through Wine on Linux.",
+        "license_notice": "Plutonium requires a legally obtained copy of Call of Duty: Black Ops 2 and a free Plutonium forum account. Server keys are obtained at plutonium.pw.",
+        "license_url": "https://plutonium.pw"
+    },
+    "plutonium_iw5": {
+        "name": "Call of Duty: Modern Warfare 3 (Plutonium)",
+        "app_id": None,
+        "server_app_id": None,
+        "requires_login": False,
+        "requires_ownership": True,
+        "default_port": 4976,
+        "port_range": GAME_PORT_RANGES["plutonium_iw5"],
+        "executable": "start.sh",
+        "workshop_id": None,
+        "custom_install": True,
+        "tags": [
+            {"name": "call-of-duty", "color": "#ef4444"},
+            {"name": "plutonium",    "color": "#f59e0b"},
+            {"name": "mw3",          "color": "#3b82f6"}
+        ],
+        "description": "Modern Warfare 3 dedicated server via Plutonium. Requires legally owned game files, a Plutonium forum account, and a Plutonium Server Key. Runs through Wine on Linux.",
+        "license_notice": "Plutonium requires a legally obtained copy of Call of Duty: Modern Warfare 3 and a free Plutonium forum account. Server keys are obtained at plutonium.pw.",
+        "license_url": "https://plutonium.pw"
     }
 }
 
@@ -2195,6 +2237,8 @@ async def install_game_server(server_id: str):
         return await _install_fivem(server_id, on_output=broadcast_line)
     if game == "teamspeak3":
         return await _install_teamspeak3(server_id, on_output=broadcast_line)
+    if game in ("plutonium_t6", "plutonium_iw5"):
+        return await _install_plutonium(server_id, game, on_output=broadcast_line)
 
     # Guard: games with no Steam app ID cannot use SteamCMD
     if not game_def.get("server_app_id"):
@@ -2433,6 +2477,87 @@ async def _install_teamspeak3(server_id: str, on_output=None) -> dict:
         return {"success": False, "error": str(e)}
 
 
+async def _install_plutonium(server_id: str, game: str, on_output=None) -> dict:
+    """Set up a Plutonium dedicated server directory.
+
+    Plutonium's actual game executables (t6r.exe / iw5mp_server.exe) come from
+    the user's legally owned game copy — we cannot distribute them. This handler:
+      1. Checks that Wine is available on the host.
+      2. Downloads plutonium.exe (the auto-updater bootstrap) from the official CDN.
+      3. Generates server.cfg and start.sh so the server is ready to configure.
+    The user must copy their game files into the server directory before starting.
+    """
+    import aiohttp, shutil
+
+    server_path = server_manager.servers_path / server_id
+    server_path.mkdir(parents=True, exist_ok=True)
+    server = server_manager.get_server(server_id)
+
+    async def _out(msg: str):
+        logger.info(msg)
+        if on_output:
+            await on_output(msg)
+
+    game_label = "Black Ops 2" if game == "plutonium_t6" else "Modern Warfare 3"
+    exe_name   = "t6r.exe"   if game == "plutonium_t6" else "iw5mp_server.exe"
+
+    try:
+        # 1. Verify Wine is installed
+        if not shutil.which("wine"):
+            await _out("[Plutonium] Wine is not installed — attempting to install it now…")
+            proc = await asyncio.create_subprocess_exec(
+                "apt-get", "install", "-y", "--no-install-recommends", "wine",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            async for line in proc.stdout:
+                await _out(f"[apt] {line.decode().rstrip()}")
+            await proc.wait()
+            if not shutil.which("wine"):
+                return {"success": False, "error": "Wine could not be installed. Install it manually: apt-get install wine"}
+        await _out("[Plutonium] Wine is available.")
+
+        # 2. Download the Plutonium bootstrap updater
+        plu_exe = server_path / "plutonium.exe"
+        if not plu_exe.exists():
+            await _out("[Plutonium] Downloading plutonium.exe from cdn.plutonium.pw…")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "https://cdn.plutonium.pw/updater/plutonium.exe",
+                    timeout=aiohttp.ClientTimeout(total=120)
+                ) as r:
+                    if r.status != 200:
+                        await _out(f"[Plutonium] ERROR: Could not download plutonium.exe (HTTP {r.status})")
+                        return {"success": False, "error": f"Download failed (HTTP {r.status})"}
+                    plu_exe.write_bytes(await r.read())
+            await _out("[Plutonium] plutonium.exe downloaded.")
+        else:
+            await _out("[Plutonium] plutonium.exe already present — skipping download.")
+
+        # 3. Generate initial server.cfg and start.sh
+        if server:
+            port = server.get("port", 28961 if game == "plutonium_t6" else 4976)
+            server_manager._generate_plutonium_config(server, server_path, port)
+            await _out("[Plutonium] server.cfg and start.sh generated.")
+
+        await _out("")
+        await _out("=" * 60)
+        await _out(f"[Plutonium] {game_label} server directory is ready.")
+        await _out(f"[Plutonium] NEXT STEPS:")
+        await _out(f"[Plutonium]   1. Copy your legally owned {game_label} game files")
+        await _out(f"[Plutonium]      into: {server_path}")
+        await _out(f"[Plutonium]   2. The game executable required is: {exe_name}")
+        await _out( "[Plutonium]   3. Enter your Plutonium Server Key in the Plutonium panel.")
+        await _out( "[Plutonium]   4. Start the server — start.sh will launch via Wine.")
+        await _out("=" * 60)
+
+        return {"success": True, "message": f"Plutonium {game_label} server directory ready. Copy game files to complete setup."}
+
+    except Exception as e:
+        logger.error(f"Plutonium install failed: {e}")
+        await _out(f"[Plutonium] ERROR: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @api_router.get("/servers/{server_id}/install/status")
 async def get_install_status(server_id: str):
     return steamcmd_manager.get_install_status(server_id)
@@ -2557,6 +2682,34 @@ async def update_reforger_scenario(server_id: str, request: Request):
     server_manager.update_server(server_id, {"scenario_id": scenario_id})
 
     return {"success": True, "scenario_id": scenario_id}
+
+
+# Plutonium-specific routes
+@api_router.put("/servers/{server_id}/plutonium/config")
+async def update_plutonium_config(server_id: str, request: Request):
+    """Save Plutonium server key, game mode, map, and regenerate server.cfg + start.sh."""
+    server = server_manager.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if server.get("game") not in ("plutonium_t6", "plutonium_iw5"):
+        raise HTTPException(status_code=400, detail="Not a Plutonium server")
+
+    body = await request.json()
+    allowed_fields = {"plutonium_key", "game_mode", "map_name", "max_players", "password", "extra_cfg"}
+    update = {k: v for k, v in body.items() if k in allowed_fields}
+    if not update:
+        raise HTTPException(status_code=400, detail="No valid fields provided")
+
+    # Persist to server record
+    server_manager.update_server(server_id, update)
+    updated = server_manager.get_server(server_id)
+
+    # Regenerate config files immediately
+    port = updated.get("port", 28961 if updated["game"] == "plutonium_t6" else 4976)
+    server_path = server_manager.servers_path / server_id
+    server_manager._generate_plutonium_config(updated, server_path, port)
+
+    return {"success": True}
 
 
 # Assetto Corsa-specific routes

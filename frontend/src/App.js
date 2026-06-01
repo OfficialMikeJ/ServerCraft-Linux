@@ -46,7 +46,10 @@ const GAME_DEFAULTS = {
     no_one_survived: { port: 7900, queryPort: 7900, requiresOwnership: false, portRange: { start: 7900, end: 7999 } },
     fivem: { port: 30120, queryPort: 30120, requiresOwnership: false, portRange: { start: 30120, end: 30219 } },
     source_engine: { port: 27015, queryPort: 27015, requiresOwnership: false, portRange: { start: 27015, end: 27114 } },
-    minecraft: { port: 25565, queryPort: 25565, requiresOwnership: false, portRange: { start: 25565, end: 25664 } }
+    minecraft:        { port: 25565, queryPort: 25565, requiresOwnership: false, portRange: { start: 25565, end: 25664 } },
+    assetto_corsa:    { port: 9600,  queryPort: 9600,  requiresOwnership: true,  portRange: { start: 9600,  end: 9699  } },
+    plutonium_t6:     { port: 28961, queryPort: 28961, requiresOwnership: true,  portRange: { start: 28961, end: 29060 } },
+    plutonium_iw5:    { port: 4976,  queryPort: 4976,  requiresOwnership: true,  portRange: { start: 4976,  end: 5075  } },
 };
 
 // Resource-conservative polling intervals (in ms) - v1.6.2026.0C optimized
@@ -1524,15 +1527,17 @@ function App() {
     };
     
     // Nav tabs filtered by role
-    const hasReforgerServers = servers.some(s => s.game === 'arma_reforger');
+    const hasReforgerServers     = servers.some(s => s.game === 'arma_reforger');
     const hasAssettoCorsaServers = servers.some(s => s.game === 'assetto_corsa');
+    const hasPlutoniumServers    = servers.some(s => s.game === 'plutonium_t6' || s.game === 'plutonium_iw5');
 
     const getVisibleNavTabs = () => {
         const allTabs = [
             'dashboard',
             'servers',
-            ...(hasReforgerServers ? ['reforger'] : []),
-            ...(hasAssettoCorsaServers ? ['assetto'] : []),
+            ...(hasReforgerServers     ? ['reforger']  : []),
+            ...(hasAssettoCorsaServers ? ['assetto']   : []),
+            ...(hasPlutoniumServers    ? ['plutonium'] : []),
             ...(settings.clustering_enabled ? ['clusters'] : []),
             'steamcmd',
             'workshop',
@@ -1560,13 +1565,14 @@ function App() {
         return allTabs;
     };
 
-    const TAB_LABELS = { reforger: 'Arma Reforger', assetto: 'Assetto Corsa' };
+    const TAB_LABELS = { reforger: 'Arma Reforger', assetto: 'Assetto Corsa', plutonium: 'Plutonium' };
 
     // Auto-redirect away from game-specific tabs when all those servers are gone
     useEffect(() => {
-        if (currentView === 'reforger' && !hasReforgerServers) setCurrentView('dashboard');
-        if (currentView === 'assetto' && !hasAssettoCorsaServers) setCurrentView('dashboard');
-    }, [hasReforgerServers, hasAssettoCorsaServers, currentView]);
+        if (currentView === 'reforger'  && !hasReforgerServers)     setCurrentView('dashboard');
+        if (currentView === 'assetto'   && !hasAssettoCorsaServers) setCurrentView('dashboard');
+        if (currentView === 'plutonium' && !hasPlutoniumServers)    setCurrentView('dashboard');
+    }, [hasReforgerServers, hasAssettoCorsaServers, hasPlutoniumServers, currentView]);
 
     // Refs for WebSocket and intervals
     const statsWsRef = useRef(null);
@@ -2467,7 +2473,7 @@ function App() {
                             {subUserData?.role_label || userRole}
                         </span>
                     )}
-                    <span className="version-badge" data-testid="version-badge">v2026.3.0-BETA</span>
+                    <span className="version-badge" data-testid="version-badge">v2026.4.0-BETA</span>
                     {updateInfo && updateDismissed && (
                         <button onClick={() => { setShowUpdateModal(true); setUpdateDismissed(false); }} title="Update available" data-testid="update-available-badge" style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px', padding: '2px 8px', cursor: 'pointer', fontSize: '12px', color: '#22c55e', fontWeight: '600', marginLeft: '4px' }}>
                             <i className="fas fa-arrow-circle-up"></i> {updateInfo.latest_version}
@@ -2584,6 +2590,18 @@ function App() {
                         setBgCategory={setBgCategory}
                     />
                     )
+                )}
+
+                {/* Plutonium Panel — only rendered when at least one Plutonium server exists */}
+                {currentView === 'plutonium' && hasPlutoniumServers && (
+                    <PlutoniumView
+                        servers={servers.filter(s => s.game === 'plutonium_t6' || s.game === 'plutonium_iw5')}
+                        onStartServer={hasPermission('server.start') ? startServer : null}
+                        onStopServer={hasPermission('server.stop') ? stopServer : null}
+                        onRestartServer={hasPermission('server.restart') ? restartServer : null}
+                        showToast={showToast}
+                        apiBase={API_BASE}
+                    />
                 )}
 
                 {/* Assetto Corsa Panel — only rendered when at least one AC server exists */}
@@ -2842,6 +2860,286 @@ function SpecsAcknowledgmentModal({ onAcknowledge }) {
         </div>
     );
 }
+
+// ─── Plutonium Panel ────────────────────────────────────────────────────────
+
+const PLUTONIUM_T6_MODES = [
+    { id: 'war',   label: 'Team Deathmatch' },
+    { id: 'dm',    label: 'Free-for-All' },
+    { id: 'dom',   label: 'Domination' },
+    { id: 'sd',    label: 'Search & Destroy' },
+    { id: 'conf',  label: 'Kill Confirmed' },
+    { id: 'hp',    label: 'Hardpoint' },
+    { id: 'ctf',   label: 'Capture the Flag' },
+    { id: 'koth',  label: 'Headquarters' },
+];
+
+const PLUTONIUM_IW5_MODES = [
+    { id: 'dm',   label: 'Free-for-All' },
+    { id: 'war',  label: 'Team Deathmatch' },
+    { id: 'dom',  label: 'Domination' },
+    { id: 'sd',   label: 'Search & Destroy' },
+    { id: 'ctf',  label: 'Capture the Flag' },
+    { id: 'koth', label: 'Headquarters' },
+    { id: 'gtnw', label: 'Ground War' },
+];
+
+const PLUTONIUM_T6_MAPS = [
+    'mp_nuketown_2020','mp_la','mp_diner','mp_turbine','mp_carrier',
+    'mp_hijacked','mp_meltdown','mp_express','mp_drone','mp_slums',
+    'mp_nightclub','mp_aftermath','mp_standoff','mp_plaza2','mp_raid',
+    'mp_vertigo','mp_cargo','mp_downtown','mp_prison','mp_depot',
+];
+
+const PLUTONIUM_IW5_MAPS = [
+    'mp_dome','mp_bootleg','mp_bravo','mp_carbon','mp_exchange',
+    'mp_hardhat','mp_interchange','mp_lambeth','mp_meteora','mp_mortar',
+    'mp_mission','mp_paris','mp_plaza2','mp_seatown','mp_terminal',
+    'mp_village','mp_alpha','mp_radar','mp_rust','mp_strike',
+];
+
+function PlutoniumView({ servers, onStartServer, onStopServer, onRestartServer, showToast, apiBase }) {
+    const [subTab, setSubTab] = React.useState('servers');
+    const [selectedServerId, setSelectedServerId] = React.useState(servers[0]?.id || '');
+    const [saving, setSaving] = React.useState(false);
+
+    // Config form state — loaded from the selected server record
+    const [form, setForm] = React.useState({
+        plutonium_key: '',
+        game_mode: 'war',
+        map_name: 'mp_nuketown_2020',
+        max_players: 18,
+        password: '',
+        extra_cfg: '',
+    });
+
+    const selectedServer = servers.find(s => s.id === selectedServerId);
+    const isT6 = selectedServer?.game === 'plutonium_t6';
+    const modes = isT6 ? PLUTONIUM_T6_MODES : PLUTONIUM_IW5_MODES;
+    const maps  = isT6 ? PLUTONIUM_T6_MAPS  : PLUTONIUM_IW5_MAPS;
+
+    // Sync form when selected server changes
+    React.useEffect(() => {
+        if (selectedServer) {
+            setForm({
+                plutonium_key: selectedServer.plutonium_key || '',
+                game_mode:     selectedServer.game_mode     || (isT6 ? 'war' : 'dm'),
+                map_name:      selectedServer.map_name      || (isT6 ? 'mp_nuketown_2020' : 'mp_dome'),
+                max_players:   selectedServer.max_players   || 18,
+                password:      selectedServer.password      || '',
+                extra_cfg:     selectedServer.extra_cfg     || '',
+            });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedServerId]);
+
+    React.useEffect(() => {
+        if (!servers.find(s => s.id === selectedServerId) && servers.length > 0) {
+            setSelectedServerId(servers[0].id);
+        }
+    }, [servers, selectedServerId]);
+
+    const saveConfig = async () => {
+        if (!selectedServerId) return;
+        setSaving(true);
+        try {
+            const r = await fetch(`${apiBase}/api/servers/${selectedServerId}/plutonium/config`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(form),
+            });
+            if (r.ok) showToast('server.cfg and start.sh saved', 'success');
+            else {
+                const d = await r.json().catch(() => ({}));
+                showToast(d.detail || 'Save failed', 'error');
+            }
+        } catch { showToast('Network error', 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const inp = { padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, width: '100%' };
+    const lbl = { display: 'block', marginBottom: 5, fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)' };
+    const fld = { marginBottom: 16 };
+    const saveBtn = (disabled) => ({ padding: '10px 28px', background: disabled ? 'rgba(59,130,246,0.3)' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: disabled ? 'not-allowed' : 'pointer' });
+
+    const SUB_TABS = [
+        { id: 'servers', icon: 'fa-server',  label: 'Servers' },
+        { id: 'config',  icon: 'fa-cog',     label: 'Server Config' },
+        { id: 'key',     icon: 'fa-key',     label: 'Server Key' },
+    ];
+
+    return (
+        <section className="view active" data-testid="plutonium-view">
+            <div className="view-header">
+                <h1><i className="fas fa-skull" style={{ marginRight: 10, color: '#f59e0b' }}></i>Plutonium</h1>
+                <p className="subtitle">Call of Duty dedicated servers via Plutonium + Wine</p>
+            </div>
+
+            {/* Notice banner */}
+            <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 24, fontSize: 13 }}>
+                <i className="fas fa-exclamation-triangle" style={{ color: '#f59e0b', marginRight: 8 }}></i>
+                <strong>Legal requirement:</strong> Plutonium requires a legally obtained copy of the game and a free{' '}
+                <a href="https://plutonium.pw" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Plutonium forum account</a>{' '}
+                with a Server Key. Linux servers run the game executable through Wine.
+            </div>
+
+            {/* Sub-tab bar */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+                {SUB_TABS.map(tab => (
+                    <button key={tab.id} onClick={() => setSubTab(tab.id)} style={{
+                        padding: '8px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                        fontWeight: subTab === tab.id ? 700 : 400,
+                        color: subTab === tab.id ? '#f59e0b' : 'var(--text-secondary)',
+                        borderBottom: subTab === tab.id ? '2px solid #f59e0b' : '2px solid transparent',
+                        marginBottom: -1, fontSize: 13, transition: 'color 0.15s',
+                    }}>
+                        <i className={`fas ${tab.icon}`} style={{ marginRight: 6 }}></i>{tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* ── Servers sub-tab ─────────────────────────────────────────── */}
+            {subTab === 'servers' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {servers.map(server => {
+                        const running    = server.status === 'running';
+                        const installing = server.status === 'installing';
+                        const gameLabel  = server.game === 'plutonium_t6' ? 'Black Ops 2' : 'Modern Warfare 3';
+                        return (
+                            <div key={server.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280', boxShadow: running ? '0 0 6px #22c55e' : 'none' }}></span>
+                                <div style={{ flex: 1, minWidth: 180 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 15 }}>{server.name}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                        <span style={{ color: '#f59e0b', fontWeight: 600 }}>{gameLabel}</span>
+                                        &nbsp;·&nbsp;Port {server.port}
+                                        &nbsp;·&nbsp;{server.max_players || 18} players max
+                                        {server.game_mode && <> &nbsp;·&nbsp;{(server.game === 'plutonium_t6' ? PLUTONIUM_T6_MODES : PLUTONIUM_IW5_MODES).find(m => m.id === server.game_mode)?.label || server.game_mode}</>}
+                                    </div>
+                                </div>
+                                <span style={{ padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: running ? 'rgba(34,197,94,0.12)' : installing ? 'rgba(245,158,11,0.12)' : 'rgba(107,114,128,0.12)', color: running ? '#22c55e' : installing ? '#f59e0b' : '#6b7280' }}>{server.status || 'stopped'}</span>
+                                {!server.plutonium_key && (
+                                    <span style={{ padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+                                        <i className="fas fa-key" style={{ marginRight: 4 }}></i>No key set
+                                    </span>
+                                )}
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {!running && !installing && onStartServer && <button className="btn btn-green btn-sm" onClick={() => onStartServer(server.id)}><i className="fas fa-play"></i> Start</button>}
+                                    {running && onStopServer && <button className="btn btn-red btn-sm" onClick={() => onStopServer(server.id)}><i className="fas fa-stop"></i> Stop</button>}
+                                    {running && onRestartServer && <button className="btn btn-sm" onClick={() => onRestartServer(server.id)}><i className="fas fa-redo"></i> Restart</button>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ── Server Config sub-tab ──────────────────────────────────── */}
+            {subTab === 'config' && (
+                <div style={{ maxWidth: 600 }}>
+                    {servers.length > 1 && (
+                        <div style={fld}>
+                            <label style={lbl}>Server</label>
+                            <select style={inp} value={selectedServerId} onChange={e => setSelectedServerId(e.target.value)}>
+                                {servers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.game === 'plutonium_t6' ? 'BO2' : 'MW3'}) — port {s.port}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 4 }}>
+                        <div style={fld}>
+                            <label style={lbl}>Game Mode</label>
+                            <select style={inp} value={form.game_mode} onChange={e => setForm({ ...form, game_mode: e.target.value })}>
+                                {modes.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                            </select>
+                        </div>
+                        <div style={fld}>
+                            <label style={lbl}>Starting Map</label>
+                            <select style={inp} value={form.map_name} onChange={e => setForm({ ...form, map_name: e.target.value })}>
+                                {maps.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                        </div>
+                        <div style={fld}>
+                            <label style={lbl}>Max Players</label>
+                            <input type="number" style={inp} min={1} max={18} value={form.max_players} onChange={e => setForm({ ...form, max_players: parseInt(e.target.value) || 18 })} />
+                        </div>
+                        <div style={fld}>
+                            <label style={lbl}>Server Password <span style={{ opacity: 0.5 }}>(leave blank for public)</span></label>
+                            <input type="password" style={inp} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="No password" />
+                        </div>
+                    </div>
+
+                    <div style={fld}>
+                        <label style={lbl}>Extra server.cfg lines <span style={{ opacity: 0.5 }}>(advanced)</span></label>
+                        <textarea style={{ ...inp, height: 90, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} value={form.extra_cfg} onChange={e => setForm({ ...form, extra_cfg: e.target.value })} placeholder={'set scr_game_allowkillcam 0\nset sv_kickBanDuration 720'} />
+                    </div>
+
+                    <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
+                        <i className="fas fa-info-circle" style={{ marginRight: 6, color: '#3b82f6' }}></i>
+                        Saving regenerates <code>server.cfg</code> and <code>start.sh</code> in the server directory. Restart the server to apply changes.
+                    </div>
+
+                    <button onClick={saveConfig} disabled={saving} style={saveBtn(saving)}>
+                        {saving ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Saving…</> : <><i className="fas fa-save" style={{ marginRight: 6 }}></i>Save Config</>}
+                    </button>
+                </div>
+            )}
+
+            {/* ── Server Key sub-tab ─────────────────────────────────────── */}
+            {subTab === 'key' && (
+                <div style={{ maxWidth: 560 }}>
+                    {servers.length > 1 && (
+                        <div style={fld}>
+                            <label style={lbl}>Server</label>
+                            <select style={inp} value={selectedServerId} onChange={e => setSelectedServerId(e.target.value)}>
+                                {servers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.game === 'plutonium_t6' ? 'BO2' : 'MW3'}) — port {s.port}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '16px 20px', marginBottom: 24 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 10, color: '#f59e0b' }}>
+                            <i className="fas fa-key" style={{ marginRight: 8 }}></i>How to get your Server Key
+                        </div>
+                        <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+                            <li>Create a free account at <a href="https://forum.plutonium.pw" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>forum.plutonium.pw</a></li>
+                            <li>Go to your profile → <strong>Server Keys</strong></li>
+                            <li>Click <strong>Generate Key</strong> — one key per server</li>
+                            <li>Paste the key below and click <strong>Save Key</strong></li>
+                        </ol>
+                    </div>
+
+                    <div style={fld}>
+                        <label style={lbl}>Plutonium Server Key</label>
+                        <input
+                            type="password"
+                            style={{ ...inp, fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                            value={form.plutonium_key}
+                            onChange={e => setForm({ ...form, plutonium_key: e.target.value })}
+                            placeholder="Paste your Plutonium Server Key here"
+                        />
+                        {selectedServer?.plutonium_key && (
+                            <div style={{ marginTop: 6, fontSize: 12, color: '#22c55e' }}>
+                                <i className="fas fa-check-circle" style={{ marginRight: 4 }}></i>Key is saved
+                            </div>
+                        )}
+                    </div>
+
+                    <button onClick={saveConfig} disabled={saving || !form.plutonium_key} style={saveBtn(saving || !form.plutonium_key)}>
+                        {saving ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Saving…</> : <><i className="fas fa-save" style={{ marginRight: 6 }}></i>Save Key</>}
+                    </button>
+
+                    <div style={{ marginTop: 24, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                        <i className="fas fa-shield-alt" style={{ marginRight: 6, color: '#8b5cf6' }}></i>
+                        The key is stored in your server config and written into <code>server.cfg</code> as <code>sv_authToken</code>. It is never transmitted outside your server.
+                    </div>
+                </div>
+            )}
+        </section>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 // ─── Assetto Corsa Panel ────────────────────────────────────────────────────
 
@@ -7410,6 +7708,9 @@ function CreateServerModal({ games, onClose, onCreate }) {
                                 <option value="source_engine">Source Engine</option>
                                 <option value="minecraft">Minecraft</option>
                                 <option value="teamspeak3">TeamSpeak 3</option>
+                                <option value="assetto_corsa">Assetto Corsa</option>
+                                <option value="plutonium_t6">CoD: Black Ops 2 (Plutonium)</option>
+                                <option value="plutonium_iw5">CoD: Modern Warfare 3 (Plutonium)</option>
                             </select>
                             {requiresOwnership && (
                                 <p className="form-warning">

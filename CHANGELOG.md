@@ -5,6 +5,27 @@ Format: `[vYYYY.MINOR.PATCH] — YYYY-MM-DD`
 
 ---
 
+## [v2026.4.0-BETA] — 2026-06-01
+
+### Added — Plutonium (Call of Duty) Game Support
+- **Plutonium panel** — dedicated "Plutonium" nav tab, appears automatically when any Plutonium server is installed, auto-hides when all are removed
+  - **Servers sub-tab** — status cards with Start / Stop / Restart controls; "No key set" warning badge on servers missing a Server Key
+  - **Server Config sub-tab** — game mode selector (TDM, FFA, Domination, S&D, etc.), starting map picker, max players, server password, and a free-text area for extra `server.cfg` lines; saving regenerates both `server.cfg` and `start.sh` immediately
+  - **Server Key sub-tab** — step-by-step instructions to obtain a key from `forum.plutonium.pw`, password-masked key input field, "Key is saved" confirmation indicator
+- **Plutonium game definitions** — two new game types in `GAME_DEFINITIONS`:
+  - `plutonium_t6` — Call of Duty: Black Ops 2 (ports 28961–29060)
+  - `plutonium_iw5` — Call of Duty: Modern Warfare 3 (ports 4976–5075)
+- **Plutonium install handler** (`_install_plutonium`) — checks for Wine (installs via `apt` if missing), downloads `plutonium.exe` bootstrap from `cdn.plutonium.pw`, generates initial `server.cfg` and `start.sh`, and prints step-by-step instructions for copying legally owned game files
+- **Dynamic config generation** (`_generate_plutonium_config`) — writes `server.cfg` with `g_logSync 2`, `sv_authToken`, hostname, password, max clients, port, and map rotation; generates `start.sh` using Wine to launch `t6r.exe` / `iw5mp_server.exe` with correct flags; script is made executable automatically
+- **`PUT /api/servers/{id}/plutonium/config`** — saves server key, game mode, map, player count, password, and extra config; regenerates both config files immediately
+- `plutonium_t6` and `plutonium_iw5` added to `CreateServerModal` game selector
+- `assetto_corsa` added to `CreateServerModal` game selector (was missing)
+
+### Changed
+- Version bumped: `v2026.3.0-BETA` → `v2026.4.0-BETA`
+
+---
+
 ## [v2026.3.0-BETA] — 2026-05-31
 
 ### Added
